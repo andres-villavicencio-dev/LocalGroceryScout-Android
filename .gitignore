@@ -14,3 +14,7 @@ captures/
 # Keystores (never commit)
 *.jks
 *.keystore
+
+# scraper artifacts
+scraper/prices.db
+scraper/__pycache__/
