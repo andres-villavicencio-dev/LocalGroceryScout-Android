@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEBUG-ONLY network security config override.
+
+  Merges with the base config in app/src/main/res/xml/network_security_config.xml
+  (via tools:replace="android:networkSecurityConfig" in the debug manifest)
+  to permit cleartext HTTP to ANY host.
+
+  Why: users point the app at their own ollama instance, which on a home
+  network is a 192.168.x.x / 10.x.x.x address served over plain HTTP.
+  Listing every possible LAN IP is impossible, so for debug builds we just
+  open cleartext universally. Release builds keep HTTPS-only.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

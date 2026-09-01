@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand seed color: deep emerald green (matches the web app's emerald-600 buttons) -->
+    <color name="seed_emerald">#059669</color>
+    <color name="seed_emerald_dark">#34D399</color>
+</resources>

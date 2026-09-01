@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Local Grocery Scout</string>
+
+    <!-- Bottom nav -->
+    <string name="nav_search">Search</string>
+    <string name="nav_lists">Lists</string>
+    <string name="nav_history">History</string>
+    <string name="nav_account">Account</string>
+
+    <!-- Search -->
+    <string name="search_placeholder">Search for groceries (e.g. milk, eggs)</string>
+    <string name="search_button">Find prices</string>
+    <string name="search_no_results">No prices found. Try a more specific item.</string>
+    <string name="search_error">Could not reach ollama. Check Settings → Ollama endpoint.</string>
+
+    <!-- Search: thinking-indicator status messages, rotated while ollama thinks.
+         Ollama calls can take 30-120s; showing progress keeps users confident the
+         app hasn't frozen. The first is shown immediately, the rest cycle. -->
+    <string name="thinking_initial">Asking %1$s…</string>
+    <string name="thinking_rotating">Combing the aisles…</string>
+    <string name="thinking_rotating_2">Checking the shelves…</string>
+    <string name="thinking_rotating_3">Asking the locals…</string>
+    <string name="thinking_rotating_4">Comparing the receipts…</string>
+    <string name="thinking_rotating_5">Walking to the back of the store…</string>
+    <string name="thinking_elapsed">%1$d s elapsed</string>
+    <string name="thinking_a11y">Thinking, please wait</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_ollama_host">Ollama host</string>
+    <string name="settings_ollama_host_hint">e.g. http://192.168.1.72:11434</string>
+    <string name="settings_ollama_model">Ollama model</string>
+    <string name="settings_ollama_model_hint">e.g. gemma4:26b</string>
+    <string name="settings_test_connection">Test connection</string>
+    <string name="settings_connection_ok">Connected to ollama</string>
+    <string name="settings_connection_failed">Connection failed</string>
+    <string name="settings_save">Save</string>
+
+    <!-- Network state -->
+    <string name="no_network_title">No internet connection</string>
+    <string name="no_network_message">Local Grocery Scout needs an internet connection to fetch prices. Connect to Wi-Fi or mobile data and try again.</string>
+    <string name="retry">Retry</string>
+
+    <!-- Permissions -->
+    <string name="permission_camera_title">Camera access needed</string>
+    <string name="permission_camera_message">Allow camera access to scan product barcodes.</string>
+    <string name="permission_location_title">Location access helps find local prices</string>
+    <string name="permission_location_message">Allow location access so we can find stores near you.</string>
+    <string name="permission_grant">Grant permission</string>
+
+    <!-- Empty states -->
+    <string name="empty_lists_title">No shopping lists yet</string>
+    <string name="empty_lists_message">Tap + to create your first list.</string>
+    <string name="empty_history_title">No price history</string>
+    <string name="empty_history_message">Search for items to start tracking prices.</string>
+
+    <!-- Account -->
+    <string name="account_signed_out">Signed out</string>
+    <string name="account_sign_in_with_google">Sign in with Google</string>
+    <string name="account_pro_coming_soon">Pro membership — coming soon</string>
+    <string name="account_pro_message">Pro features (unlimited searches, advanced analytics) are stubbed in this build. Firebase + Stripe will be wired up when keys are provided.</string>
+</resources>

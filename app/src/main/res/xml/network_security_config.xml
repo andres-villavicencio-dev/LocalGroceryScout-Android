@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network security config.
+
+  Production behavior (release build): HTTPS-only. Users must run ollama behind
+  a reverse proxy with TLS, or use a hosted HTTPS endpoint.
+
+  Debug behavior (debug build, applied via tools:replace in debug manifest):
+  Cleartext HTTP is permitted for all LAN addresses (RFC1918 ranges) so that
+  user-configured ollama endpoints on the home network work out of the box.
+
+  This base config keeps release secure; the debug override merges in below.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+
+    <!--
+      Exact-host allowlist. Domain matching is exact, not CIDR — so we list
+      the common loopback names. User LAN IPs (192.168.x.x, 10.x.x.x,
+      172.16-31.x.x) are allowed via the debug overlay at
+      app/src/debug/res/xml/network_security_config.xml.
+    -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

@@ -1,0 +1,16 @@
+# Generated files
+.gradle/
+build/
+local.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Captures
+captures/
+
+# Keystores (never commit)
+*.jks
+*.keystore
