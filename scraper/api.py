@@ -77,6 +77,54 @@ def list_prices(store: str | None = None, limit: int = 200):
         return [dict(r) for r in cur.fetchall()]
 
 
+class HistoryRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=80)
+    days: int = Field(default=90, ge=1, le=365)
+    store: str | None = None      # filter by store brand, e.g. "Pak'nSave"
+
+
+@app.post("/history")
+def history(req: HistoryRequest):
+    """Time series of scraped prices for charting.
+
+    Returns every scrape (append-only) matching the query, oldest first,
+    grouped per store so the app can draw one line per chain.
+    """
+    from store_discovery import slugify
+    rows = db.price_history(slugify(req.query), days=req.days)
+    if req.store:
+        rows = [r for r in rows if req.store.lower() in (r.get("store_brand") or "").lower()]
+
+    # Group by (store_brand, product) for per-line chart series
+    series: dict[tuple, list[dict]] = {}
+    for r in rows:
+        key = (r["store_brand"], r["product_slug"])
+        series.setdefault(key, []).append({
+            "t": r["scraped_at"],                   # unix seconds
+            "date": time.strftime("%Y-%m-%d", time.localtime(r["scraped_at"])),
+            "price": r["price_cents"] / 100,
+            "currency": r["currency"],
+            "unit": r["unit"],
+            "unit_price": r["unit_price"],
+        })
+    return {
+        "query": req.query,
+        "days": req.days,
+        "series": [
+            {
+                "store": brand,
+                "product": slug,
+                "points": pts,
+                "min": min(p["price"] for p in pts),
+                "max": max(p["price"] for p in pts),
+                "latest": pts[-1]["price"],
+            }
+            for (brand, slug), pts in sorted(series.items())
+        ],
+        "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    }
+
+
 @app.post("/search")
 def search(req: SearchRequest):
     from store_discovery import slugify

@@ -55,11 +55,49 @@ interface ScraperApi {
 
     @GET("health")
     suspend fun health(): ScraperHealth
+
+    @POST("history")
+    suspend fun history(@Body req: HistoryRequest): HistoryResponse
 }
+
+@Serializable
+data class HistoryRequest(
+    val query: String,
+    val days: Int = 90,
+    val store: String? = null,
+)
 
 @Serializable
 data class ScraperHealth(
     val ok: Boolean = false,
     val stats: Map<String, Double> = emptyMap(),
     val fresh_window_s: Double = 0.0,
+)
+
+@Serializable
+data class HistoryPoint(
+    val t: Double,                       // unix seconds — the scrape date
+    val date: String = "",               // "2026-09-01" for axis labels
+    val price: Double,
+    val currency: String = "NZD",
+    val unit: String? = null,
+    val unit_price: String? = null,
+)
+
+@Serializable
+data class HistorySeries(
+    val store: String,
+    val product: String,
+    val points: List<HistoryPoint> = emptyList(),
+    val min: Double = 0.0,
+    val max: Double = 0.0,
+    val latest: Double = 0.0,
+)
+
+@Serializable
+data class HistoryResponse(
+    val query: String = "",
+    val days: Int = 90,
+    val series: List<HistorySeries> = emptyList(),
+    val generatedAt: String = "",
 )

@@ -45,12 +45,30 @@ CREATE TABLE IF NOT EXISTS prices (
     price_cents INTEGER NOT NULL,
     currency TEXT NOT NULL DEFAULT 'NZD',
     unit TEXT,                         -- "2L", "1L", "ea"
-    unit_price TEXT,                    -- "$2.45/1L" raw per-unit string
+    unit_price TEXT,                   -- "$2.45/1L" raw per-unit string
     sku TEXT,                          -- site SKU, e.g. 5260709-EA-000
     page_url TEXT,
     scraped_at REAL NOT NULL,
     UNIQUE(store_id, product_slug, unit)
 );
+
+-- Append-only price history: every scrape writes a row, upserts on `prices`
+-- never touch this table. This is the time series that price charts read —
+-- `prices` is the "current price" snapshot, `price_history` is the audit
+-- trail of every price we've ever seen with its scrape date.
+CREATE TABLE IF NOT EXISTS price_history (
+    id INTEGER PRIMARY KEY,
+    store_id INTEGER NOT NULL REFERENCES stores(id),
+    product_slug TEXT NOT NULL,
+    price_cents INTEGER NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'NZD',
+    unit TEXT,
+    unit_price TEXT,
+    scraped_at REAL NOT NULL            -- unix seconds — the scrap DATE
+);
+
+CREATE INDEX IF NOT EXISTS idx_history_slug ON price_history(product_slug, scraped_at);
+CREATE INDEX IF NOT EXISTS idx_history_store ON price_history(store_id, scraped_at);
 
 CREATE TABLE IF NOT EXISTS queries (
     id INTEGER PRIMARY KEY,
@@ -155,6 +173,14 @@ class PriceDB:
     # ---- prices ----
     def upsert_price(self, price: Price) -> int:
         with self.tx() as cur:
+            # Append to history FIRST — every scrape is a datapoint, even if
+            # the current-price upsert below hits an existing row.
+            cur.execute(
+                """INSERT INTO price_history (store_id, product_slug, price_cents,
+                                              currency, unit, unit_price, scraped_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (price.store_id, price.product_slug, price.price_cents,
+                 price.currency, price.unit, price.unit_price, price.scraped_at))
             cur.execute(
                 """INSERT INTO prices (store_id, product_slug, product_name, price_cents,
                                        currency, unit, unit_price, sku, page_url, scraped_at)
@@ -175,6 +201,31 @@ class PriceDB:
                     (price.store_id, price.product_slug, price.unit))
                 row = cur.fetchone()
             return row["id"] if row else -1
+
+    def price_history(self, query_slug: str, days: int = 90,
+                      store_id: Optional[int] = None) -> list[dict]:
+        """Time series for charting: every scrape of products matching the
+        query slug, oldest first. Word-wise matching like the cache lookup,
+        so "milo cereal" pulls the full "nestle milo breakfast cereal" series."""
+        import re as _re
+        STOP = {"the", "and", "for", "with", "from"}
+        words = [w for w in _re.split(r"[^a-z0-9]+", query_slug.lower())
+                 if len(w) >= 3 and w not in STOP]
+        if not words:
+            return []
+        like_clauses = " AND ".join(
+            f"h.product_slug LIKE '%' || ? || '%'" for _ in words)
+        store_clause = "AND h.store_id = ?" if store_id else ""
+        params = (*words, time.time() - days * 86400, store_id) if store_id \
+            else (*words, time.time() - days * 86400)
+        with self.tx() as cur:
+            cur.execute(
+                f"""SELECT h.*, s.name AS store_name, s.brand AS store_brand
+                    FROM price_history h JOIN stores s ON s.id = h.store_id
+                    WHERE ({like_clauses}) AND h.scraped_at > ? {store_clause}
+                    ORDER BY h.scraped_at ASC""",
+                params)
+            return [dict(r) for r in cur.fetchall()]
 
     def fresh_prices_for_query(self, query_slug: str, max_age_s: float) -> list[dict]:
         """Return recent prices matching the query slug.
@@ -222,10 +273,28 @@ class PriceDB:
     def stats(self) -> dict:
         with self.tx() as cur:
             out = {}
-            for table in ("stores", "prices", "queries"):
+            for table in ("stores", "prices", "price_history", "queries"):
                 cur.execute(f"SELECT COUNT(*) AS n FROM {table}")
                 out[table] = cur.fetchone()["n"]
             cur.execute("SELECT MAX(scraped_at) AS t FROM prices")
             r = cur.fetchone()
             out["last_scrape"] = r["t"]
             return out
+
+    def backfill_history(self) -> int:
+        """One-time: copy existing `prices` rows into `price_history` so
+        pre-history scrapes appear in charts. Idempotent-ish — safe to run
+        again; duplicates only if the same row is copied twice."""
+        with self.tx() as cur:
+            cur.execute(
+                """INSERT INTO price_history (store_id, product_slug, price_cents,
+                                              currency, unit, unit_price, scraped_at)
+                   SELECT store_id, product_slug, price_cents, currency, unit,
+                          unit_price, scraped_at FROM prices
+                   WHERE NOT EXISTS (
+                       SELECT 1 FROM price_history h
+                       WHERE h.store_id = prices.store_id
+                         AND h.product_slug = prices.product_slug
+                         AND h.scraped_at = prices.scraped_at)""")
+            cur.execute("SELECT changes() AS n")
+            return cur.fetchone()["n"]

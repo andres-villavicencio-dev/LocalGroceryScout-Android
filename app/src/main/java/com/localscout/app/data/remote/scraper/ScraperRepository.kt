@@ -73,6 +73,19 @@ class ScraperRepository @Inject constructor() {
     }
 
     /**
+     * Price history time series for charting. Returns every scrape of every
+     * matching product, grouped per store chain. Fails fast (8s connect
+     * timeout) — the History screen shows an offline message on failure.
+     */
+    suspend fun priceHistory(
+        host: String,
+        query: String,
+        days: Int = 90,
+    ): Result<HistoryResponse> = runCatching {
+        apiFor(host).history(HistoryRequest(query = query, days = days))
+    }
+
+    /**
      * Query the scraper service. Returns real prices when the service is
      * reachable and has coverage for the query; a failure Result otherwise
      * (the ViewModel falls back to ollama estimates).
