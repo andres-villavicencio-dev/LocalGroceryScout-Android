@@ -96,6 +96,12 @@ class ScraperRepository @Inject constructor() {
             )
         )
         val results = resp.results.map {
+            // Provenance marker: every row from this service is a real scraped
+            // price (the UI's SCOUTED badge keys off "scrap" in reasoning).
+            // The API's own reasoning may be the LLM matcher's note or
+            // "cached scrape" — neither reliably contains the marker, so we
+            // stamp it here at the repository boundary.
+            val provenance = "scraped from ${it.storeChain ?: it.store}'s online shop"
             ParsedPrice(
                 store = it.store,
                 storeChain = it.storeChain,
@@ -105,7 +111,8 @@ class ScraperRepository @Inject constructor() {
                 address = it.address,
                 distanceKm = it.distanceKm,
                 confidence = it.confidence,
-                reasoning = it.reasoning ?: "scraped from the chain's online shop",
+                reasoning = if (it.reasoning.isNullOrBlank()) provenance
+                           else "${it.reasoning} · $provenance",
             )
         }.sortedBy { it.price }
         SearchResult(

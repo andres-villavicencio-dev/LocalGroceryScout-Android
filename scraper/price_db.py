@@ -177,15 +177,34 @@ class PriceDB:
             return row["id"] if row else -1
 
     def fresh_prices_for_query(self, query_slug: str, max_age_s: float) -> list[dict]:
-        """Return recent prices whose product_slug fuzzy-matches the query slug."""
+        """Return recent prices matching the query slug.
+
+        Matching is word-wise: every word of the query slug (minus stopwords)
+        must appear in the product slug. "milo cereal" matches
+        "nestle milo breakfast cereal" (both words present) even though the
+        exact phrase never appears contiguously. Words shorter than 3 chars
+        are ignored as noise.
+        """
+        import re as _re
+        STOP = {"the", "and", "for", "with", "from"}
+        words = [w for w in _re.split(r"[^a-z0-9]+", query_slug.lower())
+                 if len(w) >= 3 and w not in STOP]
+        if not words:
+            return []
+        like_clauses = " AND ".join(
+            f"p.product_slug LIKE '%' || ? || '%'" for _ in words)
         with self.tx() as cur:
+            # Dedupe: repeated live scrapes of the same item can insert twice
+            # (SQLite UNIQUE treats NULL units as distinct). Group on the
+            # identity that matters and keep the most recent scrape.
             cur.execute(
-                """SELECT p.*, s.name AS store_name, s.brand AS store_brand, s.distance_km
-                   FROM prices p JOIN stores s ON s.id = p.store_id
-                   WHERE p.product_slug LIKE '%' || ? || '%'
-                     AND p.scraped_at > ?
-                   ORDER BY s.distance_km, p.price_cents""",
-                (query_slug, time.time() - max_age_s))
+                f"""SELECT p.*, s.name AS store_name, s.brand AS store_brand, s.distance_km,
+                       MAX(p.scraped_at) AS scraped_at
+                    FROM prices p JOIN stores s ON s.id = p.store_id
+                    WHERE ({like_clauses}) AND p.scraped_at > ?
+                    GROUP BY p.store_id, p.product_slug, p.price_cents, COALESCE(p.unit, '')
+                    ORDER BY s.distance_km, p.price_cents""",
+                (*words, time.time() - max_age_s))
             return [dict(r) for r in cur.fetchall()]
 
     # ---- audit ----

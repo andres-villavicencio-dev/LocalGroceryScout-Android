@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
@@ -103,7 +104,15 @@ private fun SearchResultList(result: SearchResult) {
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(result.results, key = { "${it.store}-${it.price}" }) { price ->
+            itemsIndexed(
+                result.results,
+                // Key must be unique per row. store+price can collide when the
+                // same store sells two pack sizes of one product at the same
+                // price (e.g. Milo 350g and 620g both $9.99). Fold in the
+                // product name and a positional fallback so duplicates can
+                // never crash the list.
+                key = { idx, it -> "${it.store}-${it.price}-${it.reasoning.hashCode()}-$idx" },
+            ) { _, price ->
                 PriceCard(price)
             }
         }
