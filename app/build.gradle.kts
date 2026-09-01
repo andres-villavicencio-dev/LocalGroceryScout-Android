@@ -32,6 +32,13 @@ android {
             "DEFAULT_OLLAMA_MODEL",
             "\"${project.findProperty("ollamaDefaultModel") ?: "gemma4:e4b"}\""
         )
+        // Browser-agent scraper service (scraper/api.py) — real scraped prices.
+        // Falls back to ollama estimates when unreachable.
+        buildConfigField(
+            "String",
+            "DEFAULT_SCRAPER_HOST",
+            "\"${project.findProperty("scraperDefaultHost") ?: "http://192.168.1.72:8300"}\""
+        )
     }
 
     buildTypes {

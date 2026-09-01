@@ -60,7 +60,7 @@ fun SearchResultsArea(
                     .padding(top = 32.dp),
             ) {
                 Text(
-                    text = "Tip: prices are realistic estimates from your local ollama model. Check the confidence score before you trust them.",
+                    text = "Tip: searches hit the scraper service first (real supermarket prices) and fall back to ollama estimates if it's down. Look for the SCOUTED badge on cards.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -122,6 +122,19 @@ private fun PriceCard(price: ParsedPrice) {
                     text = price.store,
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
+                )
+                // Provenance badge: scraped prices are ground truth;
+                // ollama prices are estimates. The reasoning string is the
+                // tell — scraper rows say "scraped from ..." (live) or
+                // "cached scrape" (cache). Match the stem "scrap" to
+                // cover both.
+                val isScraped = price.reasoning?.contains("scrap", ignoreCase = true) == true
+                Text(
+                    text = if (isScraped) "SCOUTED" else "ESTIMATE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isScraped) MaterialTheme.colorScheme.tertiary
+                    else MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(end = 8.dp),
                 )
                 Text(
                     text = "${price.currency} ${"%.2f".format(price.price)}",

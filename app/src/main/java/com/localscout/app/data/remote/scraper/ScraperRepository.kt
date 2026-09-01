@@ -1,0 +1,120 @@
+package com.localscout.app.data.remote.scraper
+
+import com.localscout.app.domain.model.GeoLocation
+import com.localscout.app.domain.model.ParsedPrice
+import com.localscout.app.domain.model.SearchResult
+import kotlinx.serialization.json.Json
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.Retrofit
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Talks to the browser-agent scraper service (scraper/api.py).
+ *
+ * Unlike the ollama path, these prices are REAL — scraped from the chains'
+ * online shops. The service handles its own caching (3-day freshness window),
+ * so a repeat search is ~0s.
+ *
+ * Callers get the same Result<SearchResult> shape as OllamaRepository so the
+ * ViewModel can merge the two sources interchangeably.
+ */
+@Singleton
+class ScraperRepository @Inject constructor() {
+
+    private val json = Json {
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+        explicitNulls = false
+        encodeDefaults = true     // we SEND requests too; keep defaults on the wire
+    }
+
+    // Longer read timeout than ollama: a live agent run drives a real browser
+    // through two supermarket sites and can take 90s+.
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)     // fail fast if the host is down
+        .readTimeout(120, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .addInterceptor(HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BASIC
+        })
+        .build()
+
+    private var cachedApi: Pair<String, ScraperApi>? = null
+
+    private fun apiFor(host: String): ScraperApi {
+        cachedApi?.let { (h, api) -> if (h == host) return api }
+        val base = host.trim().trimEnd('/') + "/"
+        val api = Retrofit.Builder()
+            .baseUrl(base)
+            .client(client)
+            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+            .build()
+            .create(ScraperApi::class.java)
+        cachedApi = host to api
+        return api
+    }
+
+    /**
+     * Quick health probe: returns "ok — stores X · prices Y · fresh Zs" or throws.
+     * Used by the Settings screen test button.
+     */
+    suspend fun health(host: String): String {
+        val h = apiFor(host).health()
+        val s = h.stats
+        val stores = s["stores"]?.toInt() ?: 0
+        val prices = s["prices"]?.toInt() ?: 0
+        val freshDays = (h.fresh_window_s / 86400.0).toInt()
+        return "ok — $stores stores · $prices prices cached · fresh for ${freshDays}d"
+    }
+
+    /**
+     * Query the scraper service. Returns real prices when the service is
+     * reachable and has coverage for the query; a failure Result otherwise
+     * (the ViewModel falls back to ollama estimates).
+     *
+     * The returned SearchResult.modelUsed records the provenance:
+     * "scraper (cache)" or "scraper (live)".
+     */
+    suspend fun searchPrices(
+        host: String,
+        query: String,
+        location: GeoLocation,
+        region: String,
+    ): Result<SearchResult> = runCatching {
+        val api = apiFor(host)
+        val resp = api.search(
+            ScraperSearchRequest(
+                query = query,
+                lat = location.latitude,
+                lng = location.longitude,
+                region = if (region.contains("New Zealand", ignoreCase = true) || region.contains("NZ", true)) "NZ" else region,
+            )
+        )
+        val results = resp.results.map {
+            ParsedPrice(
+                store = it.store,
+                storeChain = it.storeChain,
+                price = it.price,
+                currency = it.currency,
+                unit = it.unit,
+                address = it.address,
+                distanceKm = it.distanceKm,
+                confidence = it.confidence,
+                reasoning = it.reasoning ?: "scraped from the chain's online shop",
+            )
+        }.sortedBy { it.price }
+        SearchResult(
+            query = resp.query,
+            productName = resp.productName.ifBlank { query },
+            results = results,
+            summary = resp.summary,
+            modelUsed = if (resp.source == "cache") "scraper (cached)" else "scraper (live)",
+            generatedAt = resp.generatedAt,
+        )
+    }
+}

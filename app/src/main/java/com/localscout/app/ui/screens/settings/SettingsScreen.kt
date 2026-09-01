@@ -144,6 +144,91 @@ fun SettingsScreen(
                 )
                 else -> Unit
             }
+
+            // ── Scraper service ─────────────────────────────────────────────
+            Text(
+                text = "Price scraper service",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            Text(
+                text = "When enabled, searches hit this service first for REAL prices scraped from supermarket online shops (New World, Pak'nSave). If it's unreachable, the app falls back to ollama estimates.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            val scraperCfg by viewModel.scraperSettings.collectAsStateWithLifecycle()
+            var scraperHost by remember(scraperCfg.host) { mutableStateOf(scraperCfg.host) }
+            var scraperEnabled by remember(scraperCfg.enabled) { mutableStateOf(scraperCfg.enabled) }
+            val scraperTestState by viewModel.scraperTestState.collectAsStateWithLifecycle()
+
+            OutlinedTextField(
+                value = scraperHost,
+                onValueChange = { scraperHost = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Scraper service URL") },
+                placeholder = { Text("http://192.168.1.72:8300") },
+                singleLine = true,
+            )
+            Row(
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                androidx.compose.material3.Switch(
+                    checked = scraperEnabled,
+                    onCheckedChange = { scraperEnabled = it },
+                )
+                Text(
+                    text = if (scraperEnabled) "Scraper-first (real prices)" else "Ollama estimates only",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            viewModel.saveScraper(scraperHost, scraperEnabled)
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.settings_save))
+                }
+                Button(
+                    onClick = {
+                        scope.launch {
+                            viewModel.testScraper(scraperHost)
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    enabled = scraperTestState !is ScraperTestState.Testing,
+                ) {
+                    if (scraperTestState is ScraperTestState.Testing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.padding(end = 8.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    }
+                    Text(stringResource(R.string.settings_test_connection))
+                }
+            }
+
+            when (val s = scraperTestState) {
+                is ScraperTestState.Success -> Text(
+                    text = s.stats,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                is ScraperTestState.Failure -> Text(
+                    text = "Scraper unreachable: ${s.error}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                else -> Unit
+            }
         }
     }
 }
