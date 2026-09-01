@@ -160,24 +160,40 @@ def llm_match_tiles(query: str, tiles: list[Tile]) -> list[LLMChoice]:
             {"role": "user", "content": f'Query: "{query}"\n\nTiles:\n{json.dumps(tile_payload, ensure_ascii=False)}'},
         ],
     }
-    req = urllib.request.Request(
-        OLLAMA_URL,
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=180) as resp:
-        body = json.loads(resp.read().decode())
-    content = body["message"]["content"].strip()
-    # defensive: strip fences/prose
-    if content.startswith("```"):
-        content = re.sub(r"^```[a-z]*\n?", "", content)
-        content = re.sub(r"\n?```$", "", content)
-    start = content.find("{")
-    end = content.rfind("}")
-    if start >= 0 and end > start:
-        content = content[start:end + 1]
-    data = json.loads(content)
+    # gemma4:e4b occasionally emits malformed JSON even with format:json.
+    # One retry with a corrective nudge turns a flaky failure into a delay.
+    last_err: Exception | None = None
+    for attempt in range(2):
+        if attempt == 1:
+            payload["messages"] = payload["messages"] + [{
+                "role": "user",
+                "content": "Your previous reply was invalid JSON. Respond again with STRICT JSON only, no prose, no trailing commas.",
+            }]
+        req = urllib.request.Request(
+            OLLAMA_URL,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            body = json.loads(resp.read().decode())
+        content = body["message"]["content"].strip()
+        # defensive: strip fences/prose
+        if content.startswith("```"):
+            content = re.sub(r"^```[a-z]*\n?", "", content)
+            content = re.sub(r"\n?```$", "", content)
+        start = content.find("{")
+        end = content.rfind("}")
+        if start >= 0 and end > start:
+            content = content[start:end + 1]
+        try:
+            data = json.loads(content)
+            last_err = None
+            break
+        except json.JSONDecodeError as ex:
+            last_err = ex
+    else:
+        raise ValueError(f"LLM matcher returned invalid JSON twice: {last_err}")
     out = []
     by_sku = {t.sku: t for t in tiles}
     for m in data.get("matches", []):

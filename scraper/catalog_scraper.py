@@ -17,6 +17,7 @@ Usage:
 """
 import argparse
 import json
+import random
 import re
 import sys
 import time
@@ -48,8 +49,39 @@ PNS_LAT, PNS_LNG = -36.9480, 174.9060
 ORIGIN = (-36.8485, 174.7633)
 
 
+COOLDOWN_FILE = Path(__file__).parent / "pns_cooldown.json"
+
+
+def cooldown_remaining() -> float:
+    """Seconds left in a Cloudflare ban, if one is active."""
+    try:
+        until = json.loads(cooldown_file.read_text())["until"]
+        return max(0.0, until - time.time())
+    except Exception:  # noqa: BLE001 — no file / corrupt = no cooldown
+        return 0.0
+
+
+def record_cooldown(seconds: float) -> None:
+    """Persist the rate-limit window so future runs skip instantly."""
+    cooldown_file.write_text(json.dumps({
+        "until": time.time() + seconds,
+        "reason": "cloudflare 1015 rate limit",
+        "recorded_at": time.time(),
+    }))
+
+
+cooldown_file = Path(__file__).parent / "pns_cooldown.json"
+
+
 def fetch_category_page(cat: str, pg: int, retries: int = 2) -> dict:
-    """GET one category page, return the Algolia results object."""
+    """GET one category page, return the Algolia results object.
+
+    429 handling: Pak'nSave rate-limits aggressive crawlers. On 429 we back
+    off hard (60s — their window is on the order of minutes) and jitter all
+    other retries so repeated cron runs never hammer in lockstep.
+    """
+    import random
+    import urllib.error
     url = f"{BASE}/shop/category/{cat}?pg={pg}"
     last_ex: Exception | None = None
     for attempt in range(retries + 1):
@@ -61,6 +93,19 @@ def fetch_category_page(cat: str, pg: int, retries: int = 2) -> dict:
                 r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.S).group(1))
             return data["props"]["pageProps"]["serverState"][
                 "initialResults"]["popularity-si"]["results"][0]
+        except urllib.error.HTTPError as ex:
+            last_ex = ex
+            if ex.code == 429:
+                # Cloudflare 1015: the Retry-After header tells us the real
+                # window (can be HOURS). Record it and abort the whole pass —
+                # retrying sooner is futile and can extend the ban.
+                retry_after = float(ex.headers.get("Retry-After", 3600))
+                record_cooldown(retry_after)
+                until = time.strftime("%H:%M", time.localtime(time.time() + retry_after))
+                raise RuntimeError(
+                    f"PAK'nSAVE rate-limited us (429) — cooling down until {until}")
+            else:
+                time.sleep(2 * (attempt + 1) + random.uniform(0, 2))
         except Exception as ex:  # noqa: BLE001
             last_ex = ex
             time.sleep(2 * (attempt + 1))
@@ -99,7 +144,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--pages", type=int, default=2, help="pages per category")
     ap.add_argument("--cats", nargs="*", help="subset of category slugs")
-    ap.add_argument("--gap", type=float, default=1.5, help="seconds between requests")
+    ap.add_argument("--gap", type=float, default=2.5, help="base seconds between requests (jittered ±50%)")
     args = ap.parse_args()
 
     db = PriceDB()
@@ -118,6 +163,14 @@ def main() -> int:
         store_id = db.upsert_store(store)
     else:
         store_id = row["id"]
+
+    # Respect an active Cloudflare cooldown: skip instantly, no requests.
+    remaining = cooldown_remaining()
+    if remaining > 0:
+        until = time.strftime("%H:%M", time.localtime(time.time() + remaining))
+        print(f"[cooldown] PAK'nSAVE rate-limit active — skipping catalog for "
+              f"{remaining/3600:.1f}h (until {until})")
+        return 0
 
     total_new, t0 = 0, time.time()
     print(f"📦 Catalog scrape: {len(cats)} categories × {args.pages} pages "
@@ -138,11 +191,12 @@ def main() -> int:
                     cat_new += 1
                 if pg >= res.get("nbPages", 1):
                     break
-                time.sleep(args.gap)
+                import random
+                time.sleep(args.gap * random.uniform(0.75, 1.25))
             print(f"  ✓ {cat}: {cat_new} products")
         except Exception as ex:  # noqa: BLE001
             print(f"  ✗ {cat}: {ex}")
-        time.sleep(args.gap)
+        time.sleep(args.gap * random.uniform(0.75, 1.25))
 
     stats = db.stats()
     print(f"\nDone in {(time.time() - t0) / 60:.1f} min · {total_new} prices · "

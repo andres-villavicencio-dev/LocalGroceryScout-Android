@@ -34,19 +34,24 @@ def main() -> int:
         return 0
 
     # Phase 1: catalog sweep — cheap bare-HTTP category walk fills the DB with
-    # ~1,200 current PAK'nSave prices in ~2 min. This keeps the cache warm for
-    # any query the app throws at it and grows the chart history.
-    try:
-        import subprocess
-        r = subprocess.run(
-            [sys.executable, "catalog_scraper.py", "--pages", "2"],
-            cwd=str(Path(__file__).parent), capture_output=True, text=True,
-            timeout=900)
-        tail = (r.stdout or "").strip().splitlines()
-        if tail:
-            print(f"[catalog] {tail[-1]}")
-    except Exception as ex:  # noqa: BLE001
-        print(f"[catalog] failed: {ex}")
+    # ~1,200 current PAK'nSave prices in ~3 min. Skipped on odd fires (runs
+    # every 4h instead of every 2h) — PnS rate-limits (HTTP 429) when the
+    # crawler shows up too often, and prices rarely move within 2 hours.
+    import datetime
+    if datetime.datetime.now().hour % 4 != 0:
+        print("[catalog] skipped this fire (runs every 4h to respect rate limits)")
+    else:
+        try:
+            import subprocess
+            r = subprocess.run(
+                [sys.executable, "catalog_scraper.py", "--pages", "2"],
+                cwd=str(Path(__file__).parent), capture_output=True, text=True,
+                timeout=900)
+            tail = (r.stdout or "").strip().splitlines()
+            if tail:
+                print(f"[catalog] {tail[-1]}")
+        except Exception as ex:  # noqa: BLE001
+            print(f"[catalog] failed: {ex}")
 
     # Phase 2: tracked staples via browser agent (New World; PAK'nSave is
     # covered by the catalog sweep in phase 1 — the nearest physical PnS is
