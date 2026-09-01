@@ -287,7 +287,7 @@ class PriceAgent:
                     page_url=(BRAND_SITES[brand]["product_url"]
                               .format(sku=tile.sku.replace("-EA-000", "_ea_000"),
                                       slug=urllib.parse.quote((tile.slug or ch.canonical_name).replace(" ", "-").lower()))
-                              if tile.href is None else f"https://{brand.lower().replace(chr(39),'')}.co.nz{tile.href}"),
+                              if tile.href is None else f"https://{brand.lower().replace(chr(39), '').replace(' ', '')}.co.nz{tile.href}"),
                 ))
                 all_rows.append({
                     "store": store.name, "storeChain": brand,

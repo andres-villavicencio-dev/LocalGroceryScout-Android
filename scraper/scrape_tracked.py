@@ -48,9 +48,18 @@ def main() -> int:
     except Exception as ex:  # noqa: BLE001
         print(f"[catalog] failed: {ex}")
 
-    # Phase 2: tracked staples via browser agent (both chains, LLM matching)
+    # Phase 2: tracked staples via browser agent (New World; PAK'nSave is
+    # covered by the catalog sweep in phase 1 — the nearest physical PnS is
+    # ~10km from the origin, so agent.run's distance gate would skip it and
+    # duplicate what phase 1 already did).
     agent = PriceAgent(db)
     lat, lng = AUCKLAND
+    # NW-only filter: restrict brands_to_scrape to New World via a monkeypatch
+    # of SUPPORTED_BRANDS so agent.run doesn't waste 30s/item discovering that
+    # PnS has no store nearby.
+    import store_discovery as _sd
+    _nw_only = [b for b in _sd.SUPPORTED_BRANDS if b != "Pak'nSave"]
+    _sd.SUPPORTED_BRANDS = _nw_only
     print(f"🛒 Grocery scout run — {len(items)} items: {', '.join(items)}\n")
 
     total_prices = 0

@@ -181,7 +181,21 @@ class PriceDB:
                     for r in cur.fetchall()]
 
     # ---- prices ----
+    @staticmethod
+    def _normalize_unit(unit: Optional[str]) -> Optional[str]:
+        """Canonical unit string so the same product scraped by two paths
+        (catalog '2l' vs browser-agent '2L' vs LLM '2 L') collides on the
+        UNIQUE key instead of multiplying rows. Lowercase, strip spaces."""
+        if not unit:
+            return None
+        u = unit.strip().lower().replace(" ", "")
+        return u or None
+
     def upsert_price(self, price: Price) -> int:
+        # '' (not None) so SQLite's UNIQUE(store,slug,unit) actually treats
+        # unknown-unit rows as identical — NULL != NULL, so None units
+        # multiplied rows on every re-scrape.
+        price.unit = self._normalize_unit(price.unit) or ""
         with self.tx() as cur:
             # Append to history FIRST — every scrape is a datapoint, even if
             # the current-price upsert below hits an existing row.
