@@ -160,6 +160,20 @@ fun ThinkingIndicator(
 }
 
 /**
+ * Witty status rotation, shared between the classic hourglass loader above
+ * and the M3 Expressive ShapeMorphLoader so both feel cohesive.
+ */
+object ThinkingPhrases {
+    fun statusText(phase: Int): String = when {
+        phase == 1 -> "Combing the aisles…"
+        phase == 2 -> "Checking the shelves…"
+        phase == 3 -> "Asking the locals…"
+        phase == 4 -> "Comparing the receipts…"
+        else -> "Walking to the back of the store…"
+    }
+}
+
+/**
  * Tiny inline progress dot row — used inside cards to give a visual heartbeat
  * while a result card is loading. Kept here so the thinking indicator stays
  * cohesive in look-and-feel.

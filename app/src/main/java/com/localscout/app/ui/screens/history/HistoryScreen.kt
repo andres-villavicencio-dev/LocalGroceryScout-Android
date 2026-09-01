@@ -1,11 +1,13 @@
 package com.localscout.app.ui.screens.history
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,14 +25,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.localscout.app.data.remote.scraper.HistorySeries
+import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
+import com.patrykandpatrick.vico.compose.cartesian.layer.rememberLineCartesianLayer
+import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
+import com.patrykandpatrick.vico.core.cartesian.data.CartesianChartModelProducer
+import com.patrykandpatrick.vico.core.cartesian.data.lineSeries
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -168,9 +178,42 @@ private fun HistorySeriesCard(series: HistorySeries) {
                 color = MaterialTheme.colorScheme.primary,
             )
 
+            // Emphasized hero stat (M3 Expressive typography tactic): the
+            // latest price, big and bold, with trend context against min.
+            val trendingUp = series.latest > series.min
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                Text(
+                    text = "$%.2f".format(series.latest),
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (trendingUp) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.tertiary,
+                )
+                val delta = series.latest - series.min
+                if (series.points.size > 1 && kotlin.math.abs(delta) > 0.005) {
+                    Text(
+                        text = " %s $%.2f since min".format(
+                            if (delta > 0) "▲" else "▼", kotlin.math.abs(delta)),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp, bottom = 6.dp),
+                    )
+                }
+            }
+
+            // Vico line chart of the scraped price series (needs >= 2 points).
+            if (series.points.size >= 2) {
+                PriceHistoryChart(series = series, modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp))
+            }
+
             // Datapoint list — the scrape dates. With >=2 points this reads
             // like a changelog of price moves; it IS the chart's raw data.
-            series.points.sortedByDescending { it.t }.forEach { p ->
+            series.points.sortedByDescending { it.t }.take(6).forEach { p ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -198,3 +241,29 @@ private fun formatScrapeDate(epochSeconds: Double): String =
     Instant.ofEpochSecond(epochSeconds.toLong())
         .atZone(ZoneId.systemDefault())
         .format(dateFmt)
+
+/**
+ * Vico line chart of one (store, product) price series.
+ *
+ * vico 2.0.0-beta.1 API: CartesianChartHost hosts a chart built from a
+ * LineCartesianLayer; the data flows through CartesianChartModelProducer
+ * transactions (animated transitions come free).
+ */
+@Composable
+fun PriceHistoryChart(series: HistorySeries, modifier: Modifier = Modifier) {
+    val producer = remember { CartesianChartModelProducer() }
+    LaunchedEffect(series.points) {
+        producer.runTransaction {
+            lineSeries {
+                series(series.points.sortedBy { it.t }.map { it.price.toFloat() })
+            }
+        }
+    }
+    CartesianChartHost(
+        chart = rememberCartesianChart(
+            rememberLineCartesianLayer(),
+        ),
+        modelProducer = producer,
+        modifier = modifier.height(140.dp),
+    )
+}
