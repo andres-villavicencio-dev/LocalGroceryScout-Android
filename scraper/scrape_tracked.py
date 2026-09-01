@@ -34,12 +34,13 @@ def main() -> int:
         return 0
 
     # Phase 1: catalog sweep — cheap bare-HTTP category walk fills the DB with
-    # ~1,200 current PAK'nSave prices in ~3 min. Skipped on odd fires (runs
-    # every 4h instead of every 2h) — PnS rate-limits (HTTP 429) when the
-    # crawler shows up too often, and prices rarely move within 2 hours.
+    # ~1,200 current PAK'nSave prices in ~3 min. Runs ONCE DAILY (evening fire
+    # only) — PnS's Cloudflare bans aggressive crawlers, and with a 2x-daily
+    # cron the morning fire skips the catalog entirely. The cooldown file
+    # additionally pauses it if Cloudflare flags us regardless.
     import datetime
-    if datetime.datetime.now().hour % 4 != 0:
-        print("[catalog] skipped this fire (runs every 4h to respect rate limits)")
+    if datetime.datetime.now().hour != 19:
+        print("[catalog] skipped (morning fire — catalog runs on the 7pm fire)")
     else:
         try:
             import subprocess
