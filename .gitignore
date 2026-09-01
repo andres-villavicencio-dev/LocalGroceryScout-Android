@@ -18,3 +18,7 @@ captures/
 # scraper artifacts
 scraper/prices.db
 scraper/__pycache__/
+ui*-*.mp4
+
+# demo recordings
+*.mp4
