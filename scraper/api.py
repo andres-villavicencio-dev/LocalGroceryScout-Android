@@ -83,6 +83,36 @@ class HistoryRequest(BaseModel):
     store: str | None = None      # filter by store brand, e.g. "Pak'nSave"
 
 
+@app.get("/tracked")
+def list_tracked():
+    return {"items": db.tracked_items()}
+
+
+class TrackedAddRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=80)
+
+
+@app.post("/tracked")
+def add_tracked(req: TrackedAddRequest):
+    db.add_tracked(req.query)
+    return {"ok": True, "items": db.tracked_items()}
+
+
+class TrackedRemoveRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=80)
+
+
+@app.post("/tracked/remove")
+def remove_tracked(req: TrackedRemoveRequest):
+    db.remove_tracked(req.query)
+    return {"ok": True, "items": db.tracked_items()}
+
+
+@app.post("/tracked/seed")
+def seed_tracked():
+    return {"ok": True, "items": db.seed_tracked()}
+
+
 @app.post("/history")
 def history(req: HistoryRequest):
     """Time series of scraped prices for charting.

@@ -80,6 +80,16 @@ CREATE TABLE IF NOT EXISTS queries (
     created_at REAL NOT NULL
 );
 
+-- Tracked grocery list: the items the scheduled scraper cycles through
+-- every 2 hours. Removal is soft (active=0) so re-seeding never resurfaces
+-- items the user curated away.
+CREATE TABLE IF NOT EXISTS tracked_items (
+    id INTEGER PRIMARY KEY,
+    query TEXT UNIQUE NOT NULL,
+    added_at REAL NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1
+);
+
 CREATE INDEX IF NOT EXISTS idx_prices_store ON prices(store_id);
 CREATE INDEX IF NOT EXISTS idx_prices_slug ON prices(product_slug);
 CREATE INDEX IF NOT EXISTS idx_prices_fresh ON prices(scraped_at);
@@ -257,6 +267,46 @@ class PriceDB:
                     ORDER BY s.distance_km, p.price_cents""",
                 (*words, time.time() - max_age_s))
             return [dict(r) for r in cur.fetchall()]
+
+    # ---- tracked items (scheduled scraping list) ----
+    DEFAULT_TRACKED = [
+        "milk", "bread", "eggs", "butter", "cheese",
+        "milo cereal", "rice", "pasta", "chicken", "bananas",
+    ]
+
+    def seed_tracked(self, items: Optional[list[str]] = None) -> list[str]:
+        """Insert the default tracked list (or a custom one). Idempotent:
+        existing queries are left alone, soft-deleted items stay deleted."""
+        chosen = items if items is not None else self.DEFAULT_TRACKED
+        with self.tx() as cur:
+            now = time.time()
+            for q in chosen:
+                cur.execute(
+                    """INSERT INTO tracked_items (query, added_at, active)
+                       VALUES (?, ?, 1)
+                       ON CONFLICT(query) DO NOTHING""",
+                    (q.strip().lower(), now))
+            cur.execute("SELECT query FROM tracked_items WHERE active=1 ORDER BY id")
+            return [r["query"] for r in cur.fetchall()]
+
+    def tracked_items(self) -> list[str]:
+        with self.tx() as cur:
+            cur.execute("SELECT query FROM tracked_items WHERE active=1 ORDER BY id")
+            return [r["query"] for r in cur.fetchall()]
+
+    def add_tracked(self, query: str) -> None:
+        with self.tx() as cur:
+            cur.execute(
+                """INSERT INTO tracked_items (query, added_at, active)
+                   VALUES (?, ?, 1)
+                   ON CONFLICT(query) DO UPDATE SET active=1""",
+                (query.strip().lower(), time.time()))
+
+    def remove_tracked(self, query: str) -> None:
+        with self.tx() as cur:
+            cur.execute(
+                "UPDATE tracked_items SET active=0 WHERE query=?",
+                (query.strip().lower(),))
 
     # ---- audit ----
     def log_query(self, query: str, lat: float, lng: float, region: str,
