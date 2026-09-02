@@ -54,12 +54,25 @@ interface ScraperApi {
     @POST("search")
     suspend fun search(@Body req: ScraperSearchRequest): ScraperSearchResponse
 
+    @POST("compare")
+    suspend fun compare(@Body req: CompareRequest): CompareResponse
+
     @GET("health")
     suspend fun health(): ScraperHealth
 
     @POST("history")
     suspend fun history(@Body req: HistoryRequest): HistoryResponse
 }
+
+@Serializable
+data class CompareRequest(
+    val productName: String,
+)
+
+@Serializable
+data class CompareResponse(
+    val matches: List<ScraperResultItem> = emptyList(),
+)
 
 @Serializable
 data class HistoryRequest(

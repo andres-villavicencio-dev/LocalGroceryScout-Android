@@ -86,6 +86,34 @@ class ScraperRepository @Inject constructor() {
     }
 
     /**
+     * Cross-chain "also available at" comparison. Given an exact product name
+     * (the one the user picked / is viewing), returns the SAME product sold at
+     * OTHER chains — exact-name twins plus LLM-verified reworded matches — each
+     * with its price, so the UI can show "also at Store X for $Y (+$Z)".
+     * Fails soft: an empty list on any error (the section just hides).
+     */
+    suspend fun compareProduct(
+        host: String,
+        productName: String,
+    ): List<ParsedPrice> = runCatching {
+        apiFor(host).compare(CompareRequest(productName = productName)).matches.map {
+            ParsedPrice(
+                store = it.store,
+                storeChain = it.storeChain,
+                price = it.price,
+                currency = it.currency,
+                unit = it.unit,
+                address = it.address,
+                distanceKm = it.distanceKm,
+                confidence = it.confidence,
+                reasoning = it.reasoning,
+                productName = it.productName,
+                imageUrl = it.imageUrl,
+            )
+        }.sortedBy { it.price }
+    }.getOrDefault(emptyList())
+
+    /**
      * Query the scraper service. Returns real prices when the service is
      * reachable and has coverage for the query; a failure Result otherwise
      * (the ViewModel falls back to ollama estimates).

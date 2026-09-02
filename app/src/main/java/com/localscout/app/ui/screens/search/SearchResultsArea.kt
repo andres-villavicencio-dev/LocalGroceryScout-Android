@@ -126,6 +126,8 @@ fun SearchResultsArea(
                         productName = selected,
                         rows = rows,
                         source = state.result!!.modelUsed,
+                        otherShops = state.otherShops,
+                        isComparing = state.isComparing,
                     )
                 }
             }
@@ -273,7 +275,12 @@ private fun SearchResultListFor(
     productName: String,
     rows: List<ParsedPrice>,
     source: String,
+    otherShops: List<ParsedPrice> = emptyList(),
+    isComparing: Boolean = false,
 ) {
+    // The cheapest price in the primary list — the baseline for "+$X" deltas
+    // shown against the other-shop rows.
+    val cheapest = rows.minByOrNull { it.price }?.price
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = productName,
@@ -298,6 +305,129 @@ private fun SearchResultListFor(
                     PriceCard(
                         price = price,
                         isBestPrice = idx == 0,
+                    )
+                }
+            }
+
+            // ── "Also available at" — same product, other chains, costs more ──
+            if (isComparing || otherShops.isNotEmpty()) {
+                item(key = "also-header") {
+                    Column(modifier = Modifier.padding(top = 20.dp, bottom = 2.dp)) {
+                        Text(
+                            text = "Also available at",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = if (isComparing && otherShops.isEmpty())
+                                "checking other shops…"
+                            else "same product at other shops (usually pricier)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                }
+                itemsIndexed(
+                    otherShops,
+                    key = { idx, it -> "also-${it.store}-${it.price}-$idx" },
+                ) { idx, price ->
+                    SpringEntrance(index = idx) {
+                        OtherShopCard(price = price, cheapest = cheapest)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Compact card for the "also available at" list: same product at another chain,
+ * with a "+$X pricier" delta vs the cheapest primary result. Deliberately
+ * lighter than PriceCard (this is the "you could pay more" tier).
+ */
+@Composable
+private fun OtherShopCard(
+    price: ParsedPrice,
+    cheapest: Double?,
+) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+        ) {
+            if (price.imageUrl != null) {
+                AsyncImage(
+                    model = price.imageUrl,
+                    contentDescription = price.productName ?: price.store,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)),
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = (price.storeChain ?: price.store).take(1).uppercase(),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 10.dp),
+            ) {
+                Text(
+                    text = price.storeChain ?: price.store,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                // If this chain names the product differently, show it small.
+                price.productName?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 1.dp),
+                    )
+                }
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = "$%.2f".format(price.price),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+                val delta = cheapest?.let { price.price - it }
+                if (delta != null && delta > 0.001) {
+                    Text(
+                        text = "+$%.2f".format(delta),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                } else if (delta != null && delta < -0.001) {
+                    // Rare but possible: another chain is actually cheaper.
+                    Text(
+                        text = "−$%.2f".format(-delta),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.tertiary,
                     )
                 }
             }

@@ -49,6 +49,10 @@ data class SearchUiState(
     val productOptions: List<ProductOption> = emptyList(),
     /** The product the user picked; null while the picker is showing. */
     val selectedProduct: String? = null,
+    /** Cross-chain "also available at" matches for the selected product. */
+    val compareMatches: List<com.localscout.app.domain.model.ParsedPrice> = emptyList(),
+    /** True while the /compare call is in flight for the selected product. */
+    val isComparing: Boolean = false,
 ) {
     /** Rows for the selected product, sorted cheapest first. */
     val productRows: List<com.localscout.app.domain.model.ParsedPrice>
@@ -56,6 +60,20 @@ data class SearchUiState(
             ?.filter { it.productName == selectedProduct }
             ?.sortedBy { it.price }
             ?: emptyList()
+
+    /**
+     * Other shops selling the SAME product, EXCLUDING chains already shown in
+     * [productRows], cheapest first. This is the "also available at (costs more)"
+     * list — merged from the /compare endpoint's cross-chain matches.
+     */
+    val otherShops: List<com.localscout.app.domain.model.ParsedPrice>
+        get() {
+            val shown = productRows.mapNotNull { it.storeChain ?: it.store }.toSet()
+            return compareMatches
+                .filter { (it.storeChain ?: it.store) !in shown }
+                .distinctBy { it.storeChain ?: it.store }
+                .sortedBy { it.price }
+        }
 }
 
 /** A distinct product among the search results, for the disambiguation grid. */
@@ -210,12 +228,36 @@ class SearchViewModel @Inject constructor(
 
     /** User tapped a product option — show its cheapest-across-stores rows. */
     fun selectProduct(name: String) {
-        _state.value = _state.value.copy(selectedProduct = name)
+        _state.value = _state.value.copy(
+            selectedProduct = name,
+            compareMatches = emptyList(),
+            isComparing = true,
+        )
+        // Fetch cross-chain "also available at" matches in the background.
+        viewModelScope.launch {
+            val scraperCfg = settings.scraperSettings.first()
+            if (!scraperCfg.enabled) {
+                _state.value = _state.value.copy(isComparing = false)
+                return@launch
+            }
+            val matches = scraper.compareProduct(scraperCfg.host, name)
+            // Guard against a race: user may have gone back / picked another.
+            if (_state.value.selectedProduct == name) {
+                _state.value = _state.value.copy(
+                    compareMatches = matches,
+                    isComparing = false,
+                )
+            }
+        }
     }
 
     /** Back from the product view to the picker grid. */
     fun backToPicker() {
-        _state.value = _state.value.copy(selectedProduct = null)
+        _state.value = _state.value.copy(
+            selectedProduct = null,
+            compareMatches = emptyList(),
+            isComparing = false,
+        )
     }
 
     override fun onCleared() {

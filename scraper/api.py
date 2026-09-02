@@ -18,7 +18,10 @@ Run:  uvicorn api:app --host 0.0.0.0 --port 8300
 from __future__ import annotations
 
 import sys
+import json
 import time
+import urllib.request
+import re
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -169,6 +172,150 @@ def fs_image_url(sku: str | None) -> str | None:
     if not digits.isdigit() or len(digits) < 5:
         return None
     return f"https://a.fsimg.co.nz/product/retail/fan/image/400x400/{digits}.png"
+
+
+# ── Same-product cross-chain comparison ──────────────────────────────────────
+
+COMPARE_STOP = {"the", "and", "with", "new", "zealand", "original", "fresh",
+                "size", "pack", "ea", "value", "standard", "choice"}
+
+
+def _sig_tokens(name: str) -> set:
+    return {t for t in re.split(r"[^a-z0-9]+", name.lower())
+            if len(t) >= 2 and t not in COMPARE_STOP}
+
+
+class CompareRequest(BaseModel):
+    productName: str = Field(min_length=1, max_length=160)
+
+
+@app.post("/compare")
+def compare(req: CompareRequest):
+    """Find the SAME product (same brand, type, and pack size) sold under a
+    DIFFERENT name at other chains — for the 'also available at' section.
+
+    Two-stage matching:
+      1. candidate pool via token-overlap (Jaccard >= 0.25), price rows only
+      2. one gemma4 call verifies same-product-AND-same-pack-size (shops name
+         things differently; 2L vs 1L of the same line is NOT a match)
+    Returns absolute prices; the app computes deltas vs its cheapest row.
+    """
+    from price_agent import OLLAMA_URL, MATCH_MODEL
+    anchor = req.productName.strip()
+    anchor_toks = _sig_tokens(anchor)
+    if not anchor_toks:
+        return {"matches": []}
+
+    like = " OR ".join(f"p.product_slug LIKE '%' || ? || '%'" for _ in anchor_toks)
+    with db.tx() as cur:
+        cur.execute(
+            f"""SELECT p.product_name, p.product_slug, MIN(p.price_cents) AS price_cents,
+                       p.unit, p.sku, p.page_url,
+                       s.brand AS store_brand, s.name AS store_name, s.id AS store_id
+                FROM prices p JOIN stores s ON s.id = p.store_id
+                WHERE ({like})
+                GROUP BY p.product_name, s.brand""",
+            tuple(anchor_toks))
+        pool = [dict(r) for r in cur.fetchall()]
+
+    anchor_lc = anchor.lower()
+    exact_hits, scored = [], []
+    for r in pool:
+        # Exact-name match at a DIFFERENT chain = guaranteed same product,
+        # skip the LLM. (Same name, same brand — the reliable case.)
+        if r["product_name"].lower() == anchor_lc:
+            exact_hits.append(r)
+            continue
+        toks = _sig_tokens(r["product_slug"])
+        if not toks:
+            continue
+        jac = len(anchor_toks & toks) / len(anchor_toks | toks)
+        if jac >= 0.34:  # tighter: reworded candidates need real overlap
+            r["similarity"] = jac
+            scored.append(r)
+    scored.sort(key=lambda r: -r["similarity"])
+    candidates = scored[:12]
+
+    # Build verified matches: exact hits first (no LLM), then LLM-checked ones.
+    def _row(c):
+        return {
+            "store": c["store_name"], "storeChain": c["store_brand"],
+            "price": c["price_cents"] / 100, "currency": "NZD",
+            "unit": c["unit"] or None, "productName": c["product_name"],
+            "imageUrl": fs_image_url(c["sku"]), "url": c["page_url"],
+        }
+
+    seen_chains = set()
+    verified = []
+    for c in exact_hits:
+        if c["store_brand"] in seen_chains:
+            continue
+        seen_chains.add(c["store_brand"])
+        row = _row(c); row["reasoning"] = "same product name at another chain"
+        verified.append(row)
+
+    if not candidates and not verified:
+        return {"matches": []}
+
+    # LLM verification: which reworded candidates are the same product + pack size?
+    data = {"matches": []}
+    if candidates:
+      cand_payload = [
+          {"index": i, "name": c["product_name"], "unit": c["unit"] or "",
+           "store": c["store_brand"], "price": c["price_cents"] / 100}
+          for i, c in enumerate(candidates)
+      ]
+      sys_prompt = """You compare grocery products listed by different NZ supermarket chains. The SAME product is often named differently per shop (e.g. "Anchor Blue Milk 2L" = "Anchor Whole Milk 2L Bottle", "Weet-Bix 1.2kg" = "Sanitarium Weet-Bix 1.2kg").
+Given an ANCHOR product and a list of CANDIDATES, identify which candidates are the SAME product AND SAME pack size as the anchor.
+Rules:
+- Brand must match (Anchor vs Pams is NOT the same product).
+- Same product line but different pack size (2L vs 1L) is NOT a match.
+- Different flavour/variant (Blue vs Trim, Original vs Chocolate) is NOT a match.
+- Ignore wording differences like "Bottle"/"Bag"/"Fresh"/manufacturer prefix — judge the actual product.
+- Respond STRICT JSON only: {"matches": [{"index": <int>, "confidence": 0.0-1.0}]}
+- Return [] if none match. Only include confidence >= 0.6."""
+      payload = {
+          "model": MATCH_MODEL,
+          "stream": False,
+          "format": "json",
+          "options": {"temperature": 0.1, "num_ctx": 8192},
+          "messages": [
+              {"role": "system", "content": sys_prompt},
+              {"role": "user", "content": f'Anchor product: "{anchor}"\n\nCandidates:\n{json.dumps(cand_payload, ensure_ascii=False)}'},
+          ],
+      }
+      try:
+          req2 = urllib.request.Request(
+              OLLAMA_URL, data=json.dumps(payload).encode(),
+              headers={"Content-Type": "application/json"}, method="POST")
+          with urllib.request.urlopen(req2, timeout=120) as resp:
+              body = json.loads(resp.read().decode())
+          raw = body["message"]["content"].strip()
+          start, end = raw.find("{"), raw.rfind("}")
+          data = json.loads(raw[start:end + 1]) if start >= 0 else {"matches": []}
+      except Exception as ex:  # noqa: BLE001
+          print(f"[compare] LLM failed: {ex}")
+          data = {"matches": []}
+
+    for m in data.get("matches", []):
+        mi = m.get("index")
+        if not isinstance(mi, int) or not (0 <= mi < len(candidates)):
+            continue
+        if float(m.get("confidence", 0)) < 0.6:
+            continue
+        c = candidates[mi]
+        if c["store_brand"] in seen_chains:
+            continue
+        seen_chains.add(c["store_brand"])
+        row = _row(c)
+        row["reasoning"] = "cross-chain same-product match (LLM-verified)"
+        verified.append(row)
+
+    verified.sort(key=lambda r: r["price"])
+    return {"matches": verified[:5]}
+
+
+@app.post("/search")
 
 
 @app.post("/search")
