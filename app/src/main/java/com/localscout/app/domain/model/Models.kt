@@ -20,11 +20,15 @@ data class ParsedPrice(
     val storeChain: String? = null,
     val price: Double,
     val currency: String,                 // "NZD" | "USD" | ...
-    val unit: String? = null,             // "1L", "500g", "12ct", "each"
+    val unit: String? = null,            // "1L", "500g", "12ct", "each"
     val address: String? = null,
     val distanceKm: Double? = null,
-    val confidence: Double,               // 0.0 .. 1.0
+    val confidence: Double,              // 0.0 .. 1.0
     val reasoning: String? = null,
+    /** The concrete product this price belongs to (e.g. "Anchor Blue Milk
+     *  2L"), populated by the scraper path. Null on ollama estimate rows,
+     *  where the search-level productName describes the category match. */
+    val productName: String? = null,
 )
 
 @Serializable

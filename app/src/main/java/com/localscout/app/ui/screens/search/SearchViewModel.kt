@@ -29,10 +29,12 @@ import javax.inject.Inject
  * alive (a live browser-agent scrape takes 30-90s). [thinkingPhase] cycles
  * 0..5 so we can swap the witty status text every few seconds.
  *
- * [dataSource] records how the current result was produced:
- *  "scraper"  — real prices scraped from the chains' online shops
- *  "ollama"   — LLM estimates (scraper disabled/unreachable/empty)
- *  "merged"   — both sources contributed
+ * Two-step search flow: after a search resolves, [productOptions] groups the
+ * result rows by concrete product (e.g. "Anchor Blue Milk 2L" vs "Milk Powder").
+ * The picker UI shows these options; [selectedProduct] is set when the user
+ * taps one, and [result] is filtered to that product's price rows sorted
+ * cheapest-first (the "cheapest option" view). Clearing the selection returns
+ * to the picker.
  */
 data class SearchUiState(
     val query: String = "",
@@ -43,6 +45,27 @@ data class SearchUiState(
     val error: String? = null,
     val modelName: String? = null,
     val dataSource: String? = null,
+    /** One row per distinct product: name, cheapest price, store count. */
+    val productOptions: List<ProductOption> = emptyList(),
+    /** The product the user picked; null while the picker is showing. */
+    val selectedProduct: String? = null,
+) {
+    /** Rows for the selected product, sorted cheapest first. */
+    val productRows: List<com.localscout.app.domain.model.ParsedPrice>
+        get() = result?.results
+            ?.filter { it.productName == selectedProduct }
+            ?.sortedBy { it.price }
+            ?: emptyList()
+}
+
+/** A distinct product among the search results, for the disambiguation grid. */
+data class ProductOption(
+    val productName: String,
+    val cheapestPrice: Double,
+    val currency: String,
+    val storeCount: Int,
+    val bestStore: String,
+    val isScouted: Boolean,
 )
 
 @HiltViewModel
@@ -138,6 +161,24 @@ class SearchViewModel @Inject constructor(
             }
 
             finalResult?.let { res ->
+                // Group rows by concrete product → picker options, cheapest first.
+                val options = res.results
+                    .groupBy { it.productName ?: res.productName.ifBlank { it.store } }
+                    .map { (name, rows) ->
+                        val cheapest = rows.minByOrNull { it.price } ?: rows.first()
+                        ProductOption(
+                            productName = name,
+                            cheapestPrice = cheapest.price,
+                            currency = cheapest.currency,
+                            storeCount = rows.distinctBy { it.store }.size,
+                            bestStore = cheapest.store,
+                            isScouted = rows.any { r ->
+                                r.reasoning?.contains("scrap", ignoreCase = true) == true
+                            },
+                        )
+                    }
+                    .sortedBy { it.cheapestPrice }
+
                 _state.value = _state.value.copy(
                     isSearching = false,
                     result = res,
@@ -145,6 +186,10 @@ class SearchViewModel @Inject constructor(
                     // scraper's provenance rides in modelUsed ("scraper (live)").
                     modelName = res.modelUsed,
                     dataSource = source,
+                    productOptions = options,
+                    // Auto-select when the search unambiguously matched ONE
+                    // product — the user typed "milo cereal", they meant Milo.
+                    selectedProduct = if (options.size == 1) options.first().productName else null,
                 )
             } ?: run {
                 _state.value = _state.value.copy(
@@ -157,6 +202,16 @@ class SearchViewModel @Inject constructor(
             tickerJob?.cancel()
             tickerJob = null
         }
+    }
+
+    /** User tapped a product option — show its cheapest-across-stores rows. */
+    fun selectProduct(name: String) {
+        _state.value = _state.value.copy(selectedProduct = name)
+    }
+
+    /** Back from the product view to the picker grid. */
+    fun backToPicker() {
+        _state.value = _state.value.copy(selectedProduct = null)
     }
 
     override fun onCleared() {

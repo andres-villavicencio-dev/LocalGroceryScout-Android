@@ -1,5 +1,6 @@
 package com.localscout.app.ui.screens.search
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +43,8 @@ import com.localscout.app.domain.model.SearchResult
 fun SearchResultsArea(
     state: SearchUiState,
     onRetry: () -> Unit,
+    onProductSelect: (String) -> Unit,
+    onBackToPicker: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxWidth()) {
@@ -92,7 +95,34 @@ fun SearchResultsArea(
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
-            state.result != null -> SearchResultList(state.result)
+            // ── Step 2a: product picker grid ────────────────────────────────
+            state.result != null && state.selectedProduct == null ->
+                ProductPickerGrid(
+                    options = state.productOptions,
+                    source = state.result!!.modelUsed,
+                    onSelect = onProductSelect,
+                )
+            // ── Step 2b: chosen product → cheapest-across-stores list ────────
+            state.result != null && state.selectedProduct != null -> {
+                val selected = state.selectedProduct!!
+                val rows = state.productRows
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Back-to-picker affordance
+                    SuggestionChip(
+                        onClick = onBackToPicker,
+                        label = { Text("← all products (${state.productOptions.size})") },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        ),
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                    SearchResultListFor(
+                        productName = selected,
+                        rows = rows,
+                        source = state.result!!.modelUsed,
+                    )
+                }
+            }
             else -> Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -109,53 +139,126 @@ fun SearchResultsArea(
 }
 
 @Composable
-private fun SearchResultList(result: SearchResult) {
+private fun ProductPickerGrid(
+    options: List<ProductOption>,
+    source: String,
+    onSelect: (String) -> Unit,
+) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
-            text = result.productName,
+            text = "What did you mean?",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = "${options.size} products · via $source — tap one for the cheapest store",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
+        )
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            itemsIndexed(
+                options,
+                key = { idx, it -> "opt-${it.productName}-$idx" },
+            ) { idx, opt ->
+                SpringEntrance(index = idx) {
+                    ProductOptionCard(opt = opt, onClick = { onSelect(opt.productName) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProductOptionCard(opt: ProductOption, onClick: () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = opt.productName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = buildString {
+                        append("cheapest at ")
+                        append(opt.bestStore)
+                        append(" · ")
+                        append(opt.storeCount)
+                        append(if (opt.storeCount == 1) " store" else " stores")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = "$%.2f".format(opt.cheapestPrice),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = if (opt.isScouted) "SCOUTED" else "ESTIMATE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (opt.isScouted) MaterialTheme.colorScheme.tertiary
+                    else MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The chosen product's price list: every store that sells it, cheapest first,
+ * with the hero-price treatment for the winner.
+ */
+@Composable
+private fun SearchResultListFor(
+    productName: String,
+    rows: List<ParsedPrice>,
+    source: String,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = productName,
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(bottom = 4.dp),
         )
         Text(
-            text = "via ${result.modelUsed} · ${result.results.size} results",
+            text = "via $source · ${rows.size} stores",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 12.dp),
         )
-        if (result.summary.isNotBlank()) {
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 12.dp),
-            ) {
-                Text(
-                    text = result.summary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(12.dp),
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
-            }
-        }
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             itemsIndexed(
-                result.results,
-                // Key must be unique per row. store+price can collide when the
-                // same store sells two pack sizes of one product at the same
-                // price (e.g. Milo 350g and 620g both $9.99). Fold in the
-                // product name and a positional fallback so duplicates can
-                // never crash the list.
+                rows,
                 key = { idx, it -> "${it.store}-${it.price}-${it.reasoning.hashCode()}-$idx" },
             ) { idx, price ->
                 SpringEntrance(index = idx) {
                     PriceCard(
                         price = price,
-                        isBestPrice = idx == 0,   // results arrive sorted ascending
+                        isBestPrice = idx == 0,
                     )
                 }
             }

@@ -118,6 +118,8 @@ fun SearchScreen(
         SearchResultsArea(
             state = state,
             onRetry = viewModel::search,
+            onProductSelect = viewModel::selectProduct,
+            onBackToPicker = viewModel::backToPicker,
             modifier = Modifier.padding(top = 16.dp),
         )
     }

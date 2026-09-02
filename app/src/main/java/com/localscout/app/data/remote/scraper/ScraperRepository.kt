@@ -126,6 +126,7 @@ class ScraperRepository @Inject constructor() {
                 confidence = it.confidence,
                 reasoning = if (it.reasoning.isNullOrBlank()) provenance
                            else "${it.reasoning} · $provenance",
+                productName = it.productName,
             )
         }.sortedBy { it.price }
         SearchResult(
