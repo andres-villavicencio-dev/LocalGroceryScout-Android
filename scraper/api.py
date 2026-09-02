@@ -195,6 +195,15 @@ def search(req: SearchRequest):
     # Huckleberry (Shopify JSON API) — always query it on live scrapes; the
     # clean JSON prices merge into the same result shape.
     try:
+        import vision_scraper
+        v_rows = vision_scraper.vision_search(req.query, db)
+        if v_rows:
+            result["results"].extend(v_rows)
+            result["results"].sort(key=lambda r: r["price"])
+    except Exception as ex:  # noqa: BLE001
+        print(f"[vision] search failed: {ex}")
+
+    try:
         import huckleberry
         h_rows = huckleberry.search_to_prices(req.query, db)
         if h_rows:
