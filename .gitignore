@@ -23,3 +23,4 @@ ui*-*.mp4
 # demo recordings
 *.mp4
 scraper/pns_cooldown.json
+*.apk
