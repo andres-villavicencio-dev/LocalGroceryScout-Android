@@ -10,6 +10,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -32,6 +35,10 @@ fun LocalGroceryScoutAppRoot() {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+
+    // Scanned-product handoff: the scanner navigates back to Search and drops
+    // the product name into this state; SearchScreen consumes it once.
+    var pendingScannedProduct by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         bottomBar = {
@@ -62,6 +69,8 @@ fun LocalGroceryScoutAppRoot() {
                     paddingValues = padding,
                     onOpenScanner = { navController.navigate(Routes.Scanner) },
                     onOpenSettings = { navController.navigate(Routes.Settings) },
+                    scannedProduct = pendingScannedProduct,
+                    onScannedProductConsumed = { pendingScannedProduct = null },
                 )
             }
             composable(TopLevelDestination.Lists.route) {
@@ -78,8 +87,11 @@ fun LocalGroceryScoutAppRoot() {
             }
             composable(Routes.Scanner) {
                 BarcodeScannerScreen(
-                    onResult = { barcode ->
-                        // Pass barcode back into search via savedStateHandle; simpler: pop and let user paste
+                    onSearchProduct = { productName ->
+                        // Full post-scan flow: hand the OFF-identified name to
+                        // Search (which auto-runs the price scout), then pop
+                        // the scanner off the stack.
+                        pendingScannedProduct = productName
                         navController.popBackStack()
                     },
                     onClose = { navController.popBackStack() },

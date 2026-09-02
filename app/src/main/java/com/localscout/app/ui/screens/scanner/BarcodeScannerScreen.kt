@@ -16,10 +16,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,23 +37,36 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.localscout.app.R
 import java.util.concurrent.Executors
 
+/**
+ * Barcode scanner with a REAL post-scan flow (fixes "scan closes, nothing
+ * happens"):
+ *
+ *  scan → Open Food Facts lookup →
+ *    ├─ found: confirm sheet "Found: <name> — Scout prices?" → searches
+ *    └─ unknown: sheet showing the raw barcode + "type the name instead"
+ *
+ * The camera stays live behind the sheet so retrying is instant.
+ */
 @Composable
 fun BarcodeScannerScreen(
-    onResult: (String) -> Unit,
+    onSearchProduct: (String) -> Unit,
     onClose: () -> Unit,
     viewModel: BarcodeScannerViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
+    val state by viewModel.state.collectAsStateWithLifecycle()
     var hasPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
@@ -67,12 +83,79 @@ fun BarcodeScannerScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (hasPermission) {
-            CameraPreview(
-                onBarcode = { code ->
-                    viewModel.onBarcode(code, onResult)
-                },
-            )
+            CameraPreview(onBarcode = viewModel::onBarcode)
             ScannerOverlay(onClose = onClose)
+            when (val s = state) {
+                is ScannerUiState.LookingUp -> ResultSheet {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    ) {
+                        CircularProgressIndicator()
+                        Text(
+                            text = "Barcode ${s.barcode} — looking it up…",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                    }
+                }
+                is ScannerUiState.Confirmed -> ResultSheet {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    ) {
+                        Text(
+                            text = "Found:",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Color.White,
+                        )
+                        Text(
+                            text = s.productName,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
+                        )
+                        Button(onClick = { onSearchProduct(s.productName) }) {
+                            Icon(
+                                imageVector = Icons.Filled.Search,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 8.dp),
+                            )
+                            Text("Scout prices")
+                        }
+                    }
+                }
+                is ScannerUiState.Unknown -> ResultSheet {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    ) {
+                        Text(
+                            text = "Barcode not in Open Food Facts",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White,
+                        )
+                        Text(
+                            text = s.barcode,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                        OutlinedButton(
+                            onClick = viewModel::retryScanning,
+                            colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color.White,
+                            ),
+                        ) {
+                            Text("Scan something else")
+                        }
+                    }
+                }
+                else -> Unit
+            }
         } else {
             PermissionPrompt(onGrant = { launcher.launch(Manifest.permission.CAMERA) })
         }
@@ -125,11 +208,30 @@ private fun CameraPreview(onBarcode: (String) -> Unit) {
     )
 }
 
+/** Semi-transparent card pinned over the live camera for scan results. */
+@Composable
+private fun ResultSheet(content: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            color = Color.Black.copy(alpha = 0.75f),
+            shape = MaterialTheme.shapes.extraLarge,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Box(modifier = Modifier.fillMaxWidth()) { content() }
+        }
+    }
+}
+
 @Composable
 private fun ScannerOverlay(onClose: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize()) {
         Surface(
-            color = Color.Black.copy(alpha = 0.6f),
+            color = Color.Black.copy(alpha = 0.35f),
             modifier = Modifier.fillMaxSize(),
         ) { Box(modifier = Modifier.fillMaxSize()) }
 
