@@ -1,5 +1,6 @@
 package com.localscout.app.ui.screens.search
 
+import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -86,10 +87,14 @@ fun TrolleyLoader(
     )
 
     Box(contentAlignment = Alignment.Center, modifier = modifier) {
-        // Items dropping into the basket (3 staggered dots)
+        // Items dropping INTO the basket (3 staggered dots).
+        // Geometry: the 64dp cart icon is centered, so its basket interior
+        // spans roughly y −21dp…+8dp around Box center (wheels below that).
+        // Dots therefore fall from ABOVE the trolley (−36dp) and stop INSIDE
+        // the basket (−6dp) — they visibly land in it, not through it.
         repeat(3) { i ->
-            val startMs = i * 500
-            val landMs = i * 400 + 500
+            val startMs = i * 450
+            val landMs = startMs + 420
             val drop by transition.animateFloat(
                 initialValue = 0f,
                 targetValue = 1f,
@@ -97,18 +102,24 @@ fun TrolleyLoader(
                     animation = keyframes {
                         durationMillis = 2400
                         0f at startMs
-                        1f at landMs using FastOutSlowInEasing
+                        1f at landMs using FastOutLinearInEasing  // gravity: accelerate
                         1f at 2400
                     },
                 ),
                 label = "drop-$i",
             )
             if (drop > 0.01f && drop < 0.99f) {
+                // Spread: each dot lands at its own spot across the basket.
+                val xDp = (i - 1) * 7
+                val yDp = -36f + 30f * drop            // −36dp → −6dp (in basket)
+                // Hold fully visible during the fall; fade only as it lands,
+                // reading as the item settling behind the basket rim.
+                val settle = ((drop - 0.82f) / 0.18f).coerceIn(0f, 1f)
                 Box(
                     modifier = Modifier
-                        .offset(y = (drop * 36).dp)
-                        .size(8.dp)
-                        .alpha(1f - drop)
+                        .offset(x = xDp.dp, y = yDp.dp)
+                        .size(7.dp)
+                        .alpha(1f - settle)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.tertiary),
                 )
