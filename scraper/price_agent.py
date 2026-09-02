@@ -305,12 +305,17 @@ class PriceAgent:
                                       slug=urllib.parse.quote((tile.slug or ch.canonical_name).replace(" ", "-").lower()))
                               if tile.href is None else f"https://{brand.lower().replace(chr(39), '').replace(' ', '')}.co.nz{tile.href}"),
                 ))
+                # Foodstuffs CDN product image (verified pattern, 400x400 PNG)
+                sku_digits = (tile.sku or "").split("-")[0].split("_")[0]
+                image_url = (f"https://a.fsimg.co.nz/product/retail/fan/image/400x400/{sku_digits}.png"
+                             if sku_digits.isdigit() and len(sku_digits) >= 5 else None)
                 all_rows.append({
                     "store": store.name, "storeChain": brand,
                     "price": tile.price, "currency": tile.currency,
                     "unit": ch.unit or (tile.per_unit or "").replace("$", "").split("/")[-1] or None,
                     "address": store.address or "unknown",
                     "distanceKm": round(store.distance_km, 2) if store.distance_km else None,
+                    "imageUrl": image_url,
                     "confidence": round(ch.match_confidence, 2),
                     "reasoning": ch.reasoning,
                     "source": "scraped",

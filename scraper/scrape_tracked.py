@@ -63,6 +63,22 @@ def main() -> int:
     except Exception as ex:  # noqa: BLE001
         print(f"[huckleberry] sweep failed: {ex}")
 
+    # Phase 1.6: The Warehouse grocery catalog — sitemap walk + JSON-LD
+    # product pages (~400 products, ~10 min with polite gaps). Runs on the
+    # evening fire only, alongside the PnS catalog gate.
+    if datetime.datetime.now().hour == 19:
+        try:
+            import subprocess
+            r = subprocess.run(
+                [sys.executable, "tw_catalog.py", "--pages", "10", "--limit", "400"],
+                cwd=str(Path(__file__).parent), capture_output=True, text=True,
+                timeout=1800)
+            tail = (r.stdout or "").strip().splitlines()
+            if tail:
+                print(f"[tw-catalog] {tail[-1]}")
+        except Exception as ex:  # noqa: BLE001
+            print(f"[tw-catalog] failed: {ex}")
+
     # Phase 2: tracked staples via browser agent (New World; PAK'nSave is
     # covered by the catalog sweep in phase 1 — the nearest physical PnS is
     # ~10km from the origin, so agent.run's distance gate would skip it and

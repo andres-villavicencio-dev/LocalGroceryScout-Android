@@ -1,6 +1,12 @@
 package com.localscout.app.ui.screens.search
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material3.surfaceColorAtElevation
+import coil.compose.AsyncImage
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -188,7 +194,40 @@ private fun ProductOptionCard(opt: ProductOption, onClick: () -> Unit) {
                 .fillMaxWidth()
                 .padding(14.dp),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            // Product thumbnail (Foodstuffs CDN). Small so the grid stays
+            // text-first; images load async, placeholder keeps layout stable.
+            if (opt.imageUrl != null) {
+                AsyncImage(
+                    model = opt.imageUrl,
+                    contentDescription = opt.productName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)),
+                )
+            } else {
+                // No image: a muted tile with the product's initial keeps
+                // the row rhythm consistent.
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = opt.productName.take(1).uppercase(),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 12.dp),
+            ) {
                 Text(
                     text = opt.productName,
                     style = MaterialTheme.typography.titleMedium,

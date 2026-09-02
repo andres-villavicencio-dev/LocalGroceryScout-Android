@@ -201,16 +201,12 @@ def scrape_site_search(brand: str, url: str, query: str, db: PriceDB,
         if key in seen:
             continue
         seen.add(key)
-        db.upsert_price(Price(
-            store_id=store_id,
-            product_slug=key,
-            product_name=t["name"],
-            price_cents=int(round(t["price"] * 100)),
-            currency="NZD",
-            unit=(t["unit"] or "") or "",
-            sku="",
-            page_url=url,
-        ))
+        # NOTE: vision rows are NOT persisted anymore. gemma3 occasionally
+        # hallucinates names even at 2x resolution ("Hilton Creamy Milk" for
+        # a Meadow Fresh tile), and a wrong name poisons the cache/history.
+        # The Warehouse has a trusted JSON-LD catalog sweep (tw_catalog.py);
+        # other vision-enabled sites would need a name-plausibility gate here
+        # before ever writing to the DB.
         rows.append({
             "store": brand,
             "storeChain": brand,

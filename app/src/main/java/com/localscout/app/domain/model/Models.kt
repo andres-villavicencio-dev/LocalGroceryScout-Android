@@ -29,6 +29,9 @@ data class ParsedPrice(
      *  2L"), populated by the scraper path. Null on ollama estimate rows,
      *  where the search-level productName describes the category match. */
     val productName: String? = null,
+    /** Product thumbnail (Foodstuffs CDN for New World / PAK'nSAVE rows).
+     *  Built from the SKU server-side; null when the source has no image. */
+    val imageUrl: String? = null,
 )
 
 @Serializable

@@ -66,6 +66,8 @@ data class ProductOption(
     val storeCount: Int,
     val bestStore: String,
     val isScouted: Boolean,
+    /** Product thumbnail URL (Foodstuffs CDN), shared across the group's rows. */
+    val imageUrl: String? = null,
 )
 
 @HiltViewModel
@@ -175,6 +177,8 @@ class SearchViewModel @Inject constructor(
                             isScouted = rows.any { r ->
                                 r.reasoning?.contains("scrap", ignoreCase = true) == true
                             },
+                            // First row with an image wins; Foodstuffs CDN thumbs
+                            imageUrl = rows.firstNotNullOfOrNull { it.imageUrl },
                         )
                     }
                     .sortedBy { it.cheapestPrice }

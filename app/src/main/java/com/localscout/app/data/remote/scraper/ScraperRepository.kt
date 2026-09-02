@@ -127,6 +127,7 @@ class ScraperRepository @Inject constructor() {
                 reasoning = if (it.reasoning.isNullOrBlank()) provenance
                            else "${it.reasoning} · $provenance",
                 productName = it.productName,
+                imageUrl = it.imageUrl,
             )
         }.sortedBy { it.price }
         SearchResult(

@@ -35,6 +35,7 @@ data class ScraperResultItem(
     val reasoning: String? = null,
     val productName: String? = null,
     val url: String? = null,
+    @SerialName("imageUrl") val imageUrl: String? = null,
 )
 
 @Serializable

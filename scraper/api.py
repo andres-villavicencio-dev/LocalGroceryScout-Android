@@ -155,6 +155,22 @@ def history(req: HistoryRequest):
     }
 
 
+
+def fs_image_url(sku: str | None) -> str | None:
+    """Foodstuffs CDN product image URL from a SKU (e.g. 5260709-EA-000).
+
+    Pattern verified live: a.fsimg.co.nz/product/retail/fan/image/400x400/
+    <digits>.png — the digits are the leading numeric part of the SKU.
+    Returns None for SKUs from other platforms (no guessing 404s).
+    """
+    if not sku:
+        return None
+    digits = sku.split("-")[0].split("_")[0]
+    if not digits.isdigit() or len(digits) < 5:
+        return None
+    return f"https://a.fsimg.co.nz/product/retail/fan/image/400x400/{digits}.png"
+
+
 @app.post("/search")
 def search(req: SearchRequest):
     from store_discovery import slugify
@@ -175,6 +191,7 @@ def search(req: SearchRequest):
                 "reasoning": "cached scrape",
                 "productName": r["product_name"],
                 "url": r["page_url"],
+                "imageUrl": fs_image_url(r["sku"]),
             } for r in cached]
             cheapest = min(results, key=lambda r: r["price"])
             return {
