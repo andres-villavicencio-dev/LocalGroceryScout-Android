@@ -54,6 +54,15 @@ def main() -> int:
         except Exception as ex:  # noqa: BLE001
             print(f"[catalog] failed: {ex}")
 
+    # Phase 1.5: Huckleberry catalog sweep — Shopify JSON API, ~10 requests
+    # for ~1,900 products. Runs on EVERY fire (it's that cheap and polite).
+    try:
+        import huckleberry
+        n = huckleberry.catalog_sweep(db)
+        print(f"[huckleberry] sweep: {n} prices")
+    except Exception as ex:  # noqa: BLE001
+        print(f"[huckleberry] sweep failed: {ex}")
+
     # Phase 2: tracked staples via browser agent (New World; PAK'nSave is
     # covered by the catalog sweep in phase 1 — the nearest physical PnS is
     # ~10km from the origin, so agent.run's distance gate would skip it and
