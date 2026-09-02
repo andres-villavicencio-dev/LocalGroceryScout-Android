@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Geocoder
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -13,6 +14,7 @@ import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.suspendCancellableCoroutine
 import javax.inject.Inject
 import javax.inject.Singleton
+import java.util.Locale
 import kotlin.coroutines.resume
 
 /**
@@ -44,6 +46,31 @@ class LocationRepository @Inject constructor(
                     cont.resume(loc?.let { GeoLocation(it.latitude, it.longitude) })
                 }
                 .addOnFailureListener { cont.resume(null) }
+        }
+    }
+
+    /**
+     * Reverse-geocode a coordinate into a short human-readable area label for
+     * the search screen, e.g. "Ponsonby, Auckland". Uses the platform Geocoder
+     * (no API key, no extra dependency). Returns null on any failure — the UI
+     * simply hides the address line.
+     */
+    fun addressLabel(loc: GeoLocation): String? {
+        return try {
+            if (!Geocoder.isPresent()) return null
+            val geocoder = Geocoder(context, Locale.getDefault())
+            @Suppress("DEPRECATION")
+            val addresses = geocoder.getFromLocation(loc.latitude, loc.longitude, 1)
+            val a = addresses?.firstOrNull() ?: return null
+            // Prefer the most specific sane label: suburb → city, falling back
+            // through locality/admin area so something useful almost always shows.
+            listOfNotNull(a.subLocality, a.locality)
+                .filter { it.isNotBlank() }
+                .distinct()
+                .joinToString(", ")
+                .ifBlank { a.adminArea ?: a.subAdminArea ?: a.countryName }
+        } catch (_: Exception) {
+            null
         }
     }
 }

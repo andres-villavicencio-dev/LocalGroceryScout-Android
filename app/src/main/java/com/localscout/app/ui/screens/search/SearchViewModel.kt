@@ -53,6 +53,8 @@ data class SearchUiState(
     val compareMatches: List<com.localscout.app.domain.model.ParsedPrice> = emptyList(),
     /** True while the /compare call is in flight for the selected product. */
     val isComparing: Boolean = false,
+    /** Reverse-geocoded area label, e.g. "Ponsonby, Auckland" (null = hidden). */
+    val detectedAddress: String? = null,
 ) {
     /** Rows for the selected product, sorted cheapest first. */
     val productRows: List<com.localscout.app.domain.model.ParsedPrice>
@@ -100,6 +102,21 @@ class SearchViewModel @Inject constructor(
     val state: StateFlow<SearchUiState> = _state.asStateFlow()
 
     private var tickerJob: Job? = null
+
+    init {
+        // Resolve the user's area once at startup: GPS fix → reverse-geocode →
+        // "Ponsonby, Auckland" under the title. Silent on any failure.
+        viewModelScope.launch {
+            val loc = location.currentLocation() ?: return@launch
+            // Geocoder does disk/network I/O — keep it off the main thread.
+            val label = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                location.addressLabel(loc)
+            }
+            if (!label.isNullOrBlank()) {
+                _state.value = _state.value.copy(detectedAddress = label)
+            }
+        }
+    }
 
     fun onQueryChange(q: String) {
         _state.value = _state.value.copy(query = q)

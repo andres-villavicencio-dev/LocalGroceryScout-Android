@@ -130,6 +130,14 @@ def extract_tiles(page, query: str) -> list[Tile]:
 
 OLLAMA_URL = "http://192.168.1.72:11434/api/chat"
 MATCH_MODEL = "gemma4:e4b"
+# Local fallback: when the primary model errors, times out, or is unreachable
+# (e.g. ollama cloud session-quota 429s), retry once against this small model.
+# qwen3.5:2b fits fully in the 3070's free VRAM alongside the vision model —
+# no CPU offload thrash. THINKING models must pass think=false or they burn
+# the token budget on reasoning and return empty content.
+FALLBACK_MODEL = "qwen3.5:2b"
+LLM_TIMEOUT_S = 60          # primary attempt: fail fast, the fallback is cheap
+FALLBACK_TIMEOUT_S = 120
 
 MATCH_SYSTEM = """You match grocery search queries to product listings from NZ supermarket websites.
 Given a user query and a JSON array of product tiles (name/slug, per-unit price), pick the best matches.
@@ -144,56 +152,82 @@ Rules:
 - No prose outside JSON."""
 
 
+def _ollama_chat(payload: dict, timeout_s: int) -> dict:
+    """POST to ollama and return the parsed body."""
+    req = urllib.request.Request(
+        OLLAMA_URL,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+        return json.loads(resp.read().decode())
+
+
+def _strip_to_json(content: str) -> str:
+    """Defensive: strip fences/prose around a JSON object."""
+    content = content.strip()
+    if content.startswith("```"):
+        content = re.sub(r"^```[a-z]*\n?", "", content)
+        content = re.sub(r"\n?```$", "", content)
+    start = content.find("{")
+    end = content.rfind("}")
+    if start >= 0 and end > start:
+        content = content[start:end + 1]
+    return content
+
+
 def llm_match_tiles(query: str, tiles: list[Tile]) -> list[LLMChoice]:
-    """Ask ollama to pick which tiles best satisfy the query."""
+    """Ask ollama to pick which tiles best satisfy the query.
+
+    Resilience ladder: primary model (2 attempts, one with a JSON-nudge) →
+    local fallback model. Covers ollama cloud quota 429s, timeouts, and
+    malformed-JSON streaks; a scrape degrades in speed, never in success.
+    """
     tile_payload = [
         {"sku": t.sku, "name": t.slug or t.title or t.sku, "per_unit": t.per_unit}
         for t in tiles
     ][:40]
-    payload = {
-        "model": MATCH_MODEL,
-        "stream": False,
-        "format": "json",
-        "options": {"temperature": 0.1, "num_ctx": 8192},
-        "messages": [
-            {"role": "system", "content": MATCH_SYSTEM},
-            {"role": "user", "content": f'Query: "{query}"\n\nTiles:\n{json.dumps(tile_payload, ensure_ascii=False)}'},
-        ],
-    }
-    # gemma4:e4b occasionally emits malformed JSON even with format:json.
-    # One retry with a corrective nudge turns a flaky failure into a delay.
-    last_err: Exception | None = None
+    base_messages = [
+        {"role": "system", "content": MATCH_SYSTEM},
+        {"role": "user", "content": f'Query: "{query}"\n\nTiles:\n{json.dumps(tile_payload, ensure_ascii=False)}'},
+    ]
+
+    attempts = []  # (model, messages, extra_body, timeout)
     for attempt in range(2):
+        msgs = base_messages
         if attempt == 1:
-            payload["messages"] = payload["messages"] + [{
+            msgs = base_messages + [{
                 "role": "user",
                 "content": "Your previous reply was invalid JSON. Respond again with STRICT JSON only, no prose, no trailing commas.",
             }]
-        req = urllib.request.Request(
-            OLLAMA_URL,
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=180) as resp:
-            body = json.loads(resp.read().decode())
-        content = body["message"]["content"].strip()
-        # defensive: strip fences/prose
-        if content.startswith("```"):
-            content = re.sub(r"^```[a-z]*\n?", "", content)
-            content = re.sub(r"\n?```$", "", content)
-        start = content.find("{")
-        end = content.rfind("}")
-        if start >= 0 and end > start:
-            content = content[start:end + 1]
+        attempts.append((MATCH_MODEL, msgs, {}, LLM_TIMEOUT_S))
+    # Local fallback: small thinking model — think:false is mandatory.
+    attempts.append((FALLBACK_MODEL, base_messages, {"think": False}, FALLBACK_TIMEOUT_S))
+
+    data = None
+    errors = []
+    for model, msgs, extra, timeout_s in attempts:
+        payload = {
+            "model": model,
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": 0.1, "num_ctx": 8192},
+            "messages": msgs,
+            **extra,
+        }
         try:
+            body = _ollama_chat(payload, timeout_s)
+            content = _strip_to_json(body["message"]["content"])
             data = json.loads(content)
-            last_err = None
+            if model != MATCH_MODEL:
+                print(f"[llm] primary failed ({errors[-1] if errors else 'ok'}) — fallback {model} rescued the match")
             break
-        except json.JSONDecodeError as ex:
-            last_err = ex
-    else:
-        raise ValueError(f"LLM matcher returned invalid JSON twice: {last_err}")
+        except Exception as ex:  # noqa: BLE001
+            errors.append(f"{model}: {type(ex).__name__}: {str(ex)[:80]}")
+            continue
+    if data is None:
+        raise ValueError(f"LLM matcher failed on primary + fallback: {'; '.join(errors)}")
     out = []
     by_sku = {t.sku: t for t in tiles}
     for m in data.get("matches", []):

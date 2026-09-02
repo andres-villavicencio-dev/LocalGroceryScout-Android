@@ -284,18 +284,22 @@ Rules:
               {"role": "user", "content": f'Anchor product: "{anchor}"\n\nCandidates:\n{json.dumps(cand_payload, ensure_ascii=False)}'},
           ],
       }
-      try:
-          req2 = urllib.request.Request(
-              OLLAMA_URL, data=json.dumps(payload).encode(),
-              headers={"Content-Type": "application/json"}, method="POST")
-          with urllib.request.urlopen(req2, timeout=120) as resp:
-              body = json.loads(resp.read().decode())
-          raw = body["message"]["content"].strip()
-          start, end = raw.find("{"), raw.rfind("}")
-          data = json.loads(raw[start:end + 1]) if start >= 0 else {"matches": []}
-      except Exception as ex:  # noqa: BLE001
-          print(f"[compare] LLM failed: {ex}")
-          data = {"matches": []}
+      # Same resilience ladder as llm_match_tiles: primary → local fallback.
+      from price_agent import _ollama_chat, _strip_to_json, FALLBACK_MODEL, FALLBACK_TIMEOUT_S
+      data = None
+      for model, extra, timeout_s in [
+          (MATCH_MODEL, {}, 60),
+          (FALLBACK_MODEL, {"think": False}, FALLBACK_TIMEOUT_S),
+      ]:
+          try:
+              body = _ollama_chat({**payload, "model": model, **extra}, timeout_s)
+              data = json.loads(_strip_to_json(body["message"]["content"]))
+              if model != MATCH_MODEL:
+                  print(f"[compare] fallback {model} rescued the match")
+              break
+          except Exception as ex:  # noqa: BLE001
+              print(f"[compare] {model} failed: {ex}")
+              data = {"matches": []}
 
     for m in data.get("matches", []):
         mi = m.get("index")
