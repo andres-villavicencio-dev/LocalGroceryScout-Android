@@ -5,6 +5,8 @@ import com.localscout.app.domain.model.ParsedPrice
 import com.localscout.app.domain.model.SearchResult
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -112,6 +114,31 @@ class ScraperRepository @Inject constructor() {
             )
         }.sortedBy { it.price }
     }.getOrDefault(emptyList())
+
+    /**
+     * Upload a receipt photo for OCR + per-item cheapest pricing.
+     * Separate client: uploads take a while (60-90s server pipeline) and the
+     * payload is a few hundred KB.
+     */
+    suspend fun scanReceipt(host: String, jpeg: ByteArray): ReceiptScanResponse {
+        val base = host.trim().trimEnd('/') + "/"
+        val uploadClient = OkHttpClient.Builder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(180, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .build()
+        val api = Retrofit.Builder()
+            .baseUrl(base)
+            .client(uploadClient)
+            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+            .build()
+            .create(ScraperApi::class.java)
+        val part = MultipartBody.Part.createFormData(
+            "file", "receipt.jpg",
+            jpeg.toRequestBody("image/jpeg".toMediaType()),
+        )
+        return api.scanReceipt(part)
+    }
 
     /**
      * Query the scraper service. Returns real prices when the service is

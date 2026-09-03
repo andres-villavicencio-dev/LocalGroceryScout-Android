@@ -55,4 +55,5 @@ sealed class TopLevelDestination(
 object Routes {
     const val Scanner = "scanner"
     const val Settings = "settings"
+    const val Receipt = "receipt"
 }

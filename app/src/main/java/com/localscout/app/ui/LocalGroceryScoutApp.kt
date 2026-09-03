@@ -27,6 +27,7 @@ import com.localscout.app.ui.screens.account.AccountScreen
 import com.localscout.app.ui.screens.history.HistoryScreen
 import com.localscout.app.ui.screens.lists.ListsScreen
 import com.localscout.app.ui.screens.scanner.BarcodeScannerScreen
+import com.localscout.app.ui.screens.receipt.ReceiptScreen
 import com.localscout.app.ui.screens.search.SearchScreen
 import com.localscout.app.ui.screens.settings.SettingsScreen
 
@@ -69,8 +70,9 @@ fun LocalGroceryScoutAppRoot() {
                     paddingValues = padding,
                     onOpenScanner = { navController.navigate(Routes.Scanner) },
                     onOpenSettings = { navController.navigate(Routes.Settings) },
+                    onOpenReceipt = { navController.navigate(Routes.Receipt) },
                     scannedProduct = pendingScannedProduct,
-                    onScannedProductConsumed = { pendingScannedProduct = null },
+                    onScannedProductConsumed = { pendingScannedProduct = null }
                 )
             }
             composable(TopLevelDestination.Lists.route) {
@@ -96,6 +98,9 @@ fun LocalGroceryScoutAppRoot() {
                     },
                     onClose = { navController.popBackStack() },
                 )
+            }
+            composable(Routes.Receipt) {
+                ReceiptScreen(onClose = { navController.popBackStack() })
             }
             composable(Routes.Settings) {
                 SettingsScreen(paddingValues = padding, onBack = { navController.popBackStack() })

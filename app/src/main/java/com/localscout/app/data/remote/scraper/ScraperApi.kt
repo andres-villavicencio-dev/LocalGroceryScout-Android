@@ -2,9 +2,12 @@ package com.localscout.app.data.remote.scraper
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import okhttp3.MultipartBody
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.Multipart
 import retrofit2.http.POST
+import retrofit2.http.Part
 
 /**
  * Wire format for our own scraper service (scraper/api.py).
@@ -62,7 +65,52 @@ interface ScraperApi {
 
     @POST("history")
     suspend fun history(@Body req: HistoryRequest): HistoryResponse
+
+    @Multipart
+    @POST("receipt/scan")
+    suspend fun scanReceipt(@Part file: MultipartBody.Part): ReceiptScanResponse
 }
+
+// ---------------------------------------------------------------- receipt
+
+@Serializable
+data class ReceiptStore(
+    val raw: String? = null,
+    val canonical: String? = null,
+    val scouted: Boolean = false,
+)
+
+@Serializable
+data class ReceiptMatch(
+    val storeChain: String,
+    val store: String = "",
+    val price: Double,
+    val productName: String,
+)
+
+@Serializable
+data class ReceiptItem(
+    val name: String,
+    val qty: Double = 1.0,
+    @SerialName("line_total") val lineTotal: Double,
+    val matchStatus: String = "none",        // "exact" | "llm" | "none"
+    val confidence: Double = 0.0,
+    val match: ReceiptMatch? = null,
+    val savings: Double = 0.0,
+)
+
+@Serializable
+data class ReceiptScanResponse(
+    val store: ReceiptStore = ReceiptStore(),
+    val items: List<ReceiptItem> = emptyList(),
+    val receiptTotal: Double? = null,
+    val subtotal: Double? = null,
+    val subtotalMatched: Double = 0.0,
+    val estimatedSavings: Double = 0.0,
+    val itemsCount: Int = 0,
+    val itemsPriced: Int = 0,
+    val processingMs: Int = 0,
+)
 
 @Serializable
 data class CompareRequest(

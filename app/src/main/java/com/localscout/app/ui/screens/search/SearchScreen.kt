@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -13,6 +15,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
@@ -41,6 +44,7 @@ fun SearchScreen(
     paddingValues: PaddingValues,
     onOpenScanner: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenReceipt: () -> Unit = {},
     scannedProduct: String? = null,
     onScannedProductConsumed: () -> Unit = {},
     viewModel: SearchViewModel = hiltViewModel(),
@@ -151,6 +155,21 @@ fun SearchScreen(
                     contentDescription = "Scan barcode",
                 )
             }
+        }
+        // Receipt-to-savings entry point
+        androidx.compose.material3.OutlinedButton(
+            onClick = onOpenReceipt,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+        ) {
+            androidx.compose.material3.Icon(
+                imageVector = androidx.compose.material.icons.Icons.Filled.ReceiptLong,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("Scan a receipt — see what you could have saved")
         }
 
         // Results / loading / error states are rendered below this point.

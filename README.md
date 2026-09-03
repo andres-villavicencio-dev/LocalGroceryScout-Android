@@ -16,6 +16,11 @@ Local Grocery Scout is a native Android app that tells you what your weekly shop
 | ![Cross-chain compare](docs/screenshots/compare.png) | ![Price history](docs/screenshots/history.png) |
 | *Same butter, $0.70 cheaper next door* | *Every search builds the price database* |
 
+| |
+|:---:|
+| ![Receipt savings](docs/screenshots/receipt.png) |
+| *A real receipt, scanned: 2 items priced, honest savings, 3 items honestly unpriced* |
+
 </div>
 
 ## Why
@@ -62,6 +67,9 @@ Type a query → a picker shows *every matching product* with photo, store count
 ### 📷 Barcode scanning
 Green button → point at any barcode → ML Kit detects it, Open Food Facts names it, the price service finds it across stores, and you're one tap from scouting its price.
 
+### 🧾 Receipt-to-savings
+Photograph your receipt when you get home and see what you *could have* paid: every line item is read (OCR + local vision model), matched against the price database, and priced at its cheapest scouted store — with a big **"You could have saved $X"** banner and per-item strikethrough deltas. Items we can't confidently identify show honestly as **unpriced** and never count toward the savings. Receipts from unscouted chains (Woolworths/Countdown) work too — you just can't price items *at* that store yet.
+
 ### 🏪 "Also available at"
 The killer feature for real grocery shopping: after the main price cards, the app lists where the **same product** is sold under a **different name**, with a red **+$X** / green **−$X** delta against the cheapest. Matching is brand-and-pack-size strict — 750g Weet-Bix is never compared to 1.2kg Weet-Bix.
 
@@ -102,9 +110,9 @@ Set the scraper address in the app under **Settings**. An Ollama host can also b
 
 ## Status
 
-Working today: search, two-step product picker with photos, barcode scanning, cross-chain "also available at" comparison, price history charts, detected location, twice-daily scheduled scrapes, resilient LLM fallback (cloud model → local GPU model).
+Working today: search, two-step product picker with photos, barcode scanning, receipt-to-savings, cross-chain "also available at" comparison, price history charts, detected location, twice-daily scheduled scrapes, resilient LLM fallback (cloud model → local GPU model).
 
-Roadmap: shopping-list totals with per-store splitting, price-drop alerts, more chains (Countdown is the big one), and sharing lists between households.
+Roadmap: shopping-list totals with per-store splitting, price-drop alerts, more chains (Countdown is the big one — it would light up receipt savings for NZ's biggest chain), receipt savings history, and sharing lists between households.
 
 ## License
 
