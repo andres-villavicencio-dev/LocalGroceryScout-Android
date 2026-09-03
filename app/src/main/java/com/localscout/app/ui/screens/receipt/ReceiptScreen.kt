@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -85,6 +86,7 @@ fun ReceiptScreen(
             )
         },
     ) { padding ->
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
         when (val s = state) {
             ReceiptUiState.Idle -> CaptureStep(
                 onCapture = { /* wired below via launcher */ },
@@ -104,6 +106,7 @@ fun ReceiptScreen(
                 onRetry = { viewModel.reset() },
                 onPick = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
             )
+        }
         }
     }
 }
@@ -254,17 +257,23 @@ private fun ResultStep(receipt: ReceiptScanResponse, onScanAnother: () -> Unit) 
     // clipped below the gesture-nav area on tall result lists.
     Scaffold(
         bottomBar = {
+            // edge-to-edge is enabled: without navigationBarsPadding the
+            // button draws behind the system nav (back/home/recents).
             androidx.compose.material3.Button(
                 onClick = onScanAnother,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding()
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             ) { Text("Scan another receipt") }
         },
     ) { innerPadding ->
     LazyColumn(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 8.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            top = innerPadding.calculateTopPadding(),
+            bottom = innerPadding.calculateBottomPadding() + 8.dp,
+        ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {

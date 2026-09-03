@@ -196,7 +196,24 @@ def extract_receipt(image_b64: str) -> dict:
         # items only in the second reading (first read missed them)
         keys_a = {_norm_key(i["name"]) for i in a["items"]}
         extras = [i for k, i in items_b.items() if k not in keys_a]
-        out = {**a, "items": items + extras}
+        merged = items + extras
+        # The two readings often spell the same item differently ("Banal" vs
+        # "BANANA"), so exact-key dedupe misses them. Collapse near-duplicates:
+        # same first word + similar price -> one row (cheaper price wins);
+        # same first word + very different price -> keep both (genuinely two
+        # lines, e.g. two quantities scanned separately).
+        deduped = []
+        for it in merged:
+            twin = None
+            for d in deduped:
+                if _norm_key(d["name"]).split("-")[0] == _norm_key(it["name"]).split("-")[0]:
+                    twin = d
+                    break
+            if twin is not None and abs(twin["line_total"] - it["line_total"]) <= 0.5:
+                twin["line_total"] = min(twin["line_total"], it["line_total"])
+                continue
+            deduped.append(it)
+        out = {**a, "items": deduped}
         # prefer a read that produced a total; reconcile totals too
         out["total"] = a.get("total") or b.get("total")
         out["subtotal"] = a.get("subtotal") or b.get("subtotal")
