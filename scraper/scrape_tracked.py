@@ -54,15 +54,6 @@ def main() -> int:
         except Exception as ex:  # noqa: BLE001
             print(f"[catalog] failed: {ex}")
 
-    # Phase 1.5: Huckleberry catalog sweep — Shopify JSON API, ~10 requests
-    # for ~1,900 products. Runs on EVERY fire (it's that cheap and polite).
-    try:
-        import huckleberry
-        n = huckleberry.catalog_sweep(db)
-        print(f"[huckleberry] sweep: {n} prices")
-    except Exception as ex:  # noqa: BLE001
-        print(f"[huckleberry] sweep failed: {ex}")
-
     # Phase 1.6: The Warehouse grocery catalog — sitemap walk + JSON-LD
     # product pages (~400 products, ~10 min with polite gaps). Runs on the
     # evening fire only, alongside the PnS catalog gate.

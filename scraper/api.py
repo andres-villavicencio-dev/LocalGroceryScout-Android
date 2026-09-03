@@ -366,8 +366,6 @@ def search(req: SearchRequest):
     result = agent.run(req.query, req.lat, req.lng, req.region,
                        radius_m=req.radius_m)
 
-    # Huckleberry (Shopify JSON API) — always query it on live scrapes; the
-    # clean JSON prices merge into the same result shape.
     try:
         import vision_scraper
         v_rows = vision_scraper.vision_search(req.query, db)
@@ -376,20 +374,6 @@ def search(req: SearchRequest):
             result["results"].sort(key=lambda r: r["price"])
     except Exception as ex:  # noqa: BLE001
         print(f"[vision] search failed: {ex}")
-
-    try:
-        import huckleberry
-        h_rows = huckleberry.search_to_prices(req.query, db)
-        if h_rows:
-            result["results"].extend(h_rows)
-            result["results"].sort(key=lambda r: r["price"])
-            result["summary"] = (
-                f"{result['summary']} · Huckleberry: {len(h_rows)} more"
-                if result["summary"] else
-                f"Huckleberry: {len(h_rows)} prices"
-            )
-    except Exception as ex:  # noqa: BLE001 — never fail the search over this
-        print(f"[huckleberry] search failed: {ex}")
 
     result["source"] = "live-scrape"
     result["duration_s"] = round(time.time() - t0, 1)

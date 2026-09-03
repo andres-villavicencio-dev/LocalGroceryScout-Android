@@ -32,7 +32,7 @@ Local Grocery Scout does that comparison for you:
 - 📷 **Scan any barcode** — the product is identified via [Open Food Facts](https://openfoodfacts.org) and priced instantly. No typing.
 - 🔍 **Search like a human** — type "milk" and get every fresh milk across every connected store, each with its cheapest price.
 - 🥇 **See the cheapest store first** — big price, store name, distance from you, and how confident the match is.
-- 🏪 **Spot the renamed identical product** — the cross-chain matcher recognises that Huckleberry's "Anchor Pure Butter 500g" is the same block of butter New World sells as "Anchor Butter" — and tells you it's **$0.70 more** there.
+- 🏪 **Spot the renamed identical product** — the cross-chain matcher recognises that "Anchor Pure Butter 500g" at one chain is the same block of butter another chain sells as "Anchor Butter" — and tells you the price difference.
 - 📈 **Watch prices over time** — every search feeds a growing price database (currently **~9,800 historical datapoints** across 3,400+ products), so charts show what prices are really doing.
 - 📍 **Know what's near you** — your detected area shows right on the home screen; store cards show how far the shop is.
 
@@ -43,8 +43,7 @@ Local Grocery Scout does that comparison for you:
 │  Android app │ ───────▶ │  Price scraper (FastAPI)     │
 │  (Kotlin +   │          │  ├─ New World (Playwright)   │
 │   Compose)   │          │  ├─ Pak'nSave (__NEXT_DATA__)│
-└─────────────┘           │  ├─ Huckleberry (Shopify)    │
-       │                  │  └─ The Warehouse (JSON-LD)  │
+└─────────────┘           │  └─ The Warehouse (catalog)  │
        ▼                  │  └─ SQLite price database    │
 ┌─────────────┐           └──────────────────────────────┘
 │ Open Food    │
@@ -83,7 +82,7 @@ Grant location once and the app detects your area (e.g. "Kenmore, Dunedin") and 
 
 **Android app** — Kotlin 2.1, Jetpack Compose, Material 3 (dynamic color), Hilt, Retrofit + kotlinx.serialization, CameraX + ML Kit, Fused Location Provider, DataStore. Material You theming out of the box.
 
-**Price scraper** — Python 3, FastAPI + uvicorn, SQLite, Playwright (New World), direct-site extractors for Pak'nSave/Huckleberry/The Warehouse, local LLM via [Ollama](https://ollama.com) for product matching.
+**Price scraper** — Python 3, FastAPI + uvicorn, SQLite, Playwright (New World), direct-site extractors for Pak'nSave/The Warehouse, local LLM via [Ollama](https://ollama.com) for product matching.
 
 ### Running your own
 
