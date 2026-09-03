@@ -72,7 +72,7 @@ STRUCTURE_PROMPT = """You read New Zealand supermarket receipts. Transcribe the 
 Return STRICT JSON only, no prose:
 {"is_receipt": true,
  "store": "<store name printed on the receipt header>",
- "items": [{"name": "<product name as printed>", "qty": <number of units, default 1>, "line_total": <amount charged for the line in NZD dollars, e.g. 4.59>}],
+ "items": [{"name": "<product name as printed>", "clean_name": "<the name repaired: expand truncations and fix OCR garbles using the brand+context, e.g. 'MCCOY FRUIT JUICE ORA' -> 'McCoy Fruit Juice Orange'. Never invent a brand that isn't printed.>", "qty": <number of units, default 1>, "line_total": <amount charged for the line in NZD dollars, e.g. 4.59>}],
  "subtotal": <number or null>,
  "total": <number or null>}
 
@@ -158,8 +158,10 @@ def extract_receipt(image_b64: str) -> dict:
                 continue
             if not name or line_total <= 0:
                 continue                  # priceless line = useless line
+            clean = str(it.get("clean_name") or "").strip()
             items.append({"name": name[:80], "qty": qty,
-                          "line_total": round(line_total, 2)})
+                          "line_total": round(line_total, 2),
+                          **({"clean_name": clean[:80]} if clean and clean.lower() != name.lower() else {})})
         return (items, _num(data.get("subtotal")),
                 _num(data.get("total")),
                 (data.get("store") or "").strip() or None)
@@ -176,25 +178,26 @@ def extract_receipt(image_b64: str) -> dict:
         return {"is_receipt": True, "store": store, "items": items,
                 "subtotal": subtotal, "total": total}
 
-    def _norm_key(name: str) -> str:
+    def _norm_key(item: dict) -> str:
         import re as _re
-        words = [w for w in re.split(r"[^a-z0-9]+", name.lower()) if len(w) >= 3]
-        return "-".join(words[:4])
+        src = item.get("clean_name") or item["name"]
+        words = [w for w in _re.split(r"[^a-z0-9]+", src.lower()) if len(w) >= 3]
+        return "-".join(sorted(words[:4]))   # sorted: robust to word order
 
     def _reconcile(a: dict, b: dict) -> dict:
         """Majority-vote per item across two readings. Items agreeing keep
         their price; disagreements keep the CHEAPER price (hallucinations
         inflate: $5.99 -> $85.99, never the reverse)."""
-        items_b = {_norm_key(i["name"]): i for i in b["items"]}
+        items_b = {_norm_key(i): i for i in b["items"]}
         items = []
         for it in a["items"]:
-            twin = items_b.get(_norm_key(it["name"]))
+            twin = items_b.get(_norm_key(it))
             if twin and abs(twin["line_total"] - it["line_total"]) > 0.02:
                 it = {**it, "line_total": min(it["line_total"],
                                               twin["line_total"])}
             items.append(it)
         # items only in the second reading (first read missed them)
-        keys_a = {_norm_key(i["name"]) for i in a["items"]}
+        keys_a = {_norm_key(i) for i in a["items"]}
         extras = [i for k, i in items_b.items() if k not in keys_a]
         merged = items + extras
         # The two readings often spell the same item differently ("Banal" vs
@@ -206,7 +209,7 @@ def extract_receipt(image_b64: str) -> dict:
         for it in merged:
             twin = None
             for d in deduped:
-                if _norm_key(d["name"]).split("-")[0] == _norm_key(it["name"]).split("-")[0]:
+                if _norm_key(d).split("-")[0] == _norm_key(it).split("-")[0]:
                     twin = d
                     break
             if twin is not None and abs(twin["line_total"] - it["line_total"]) <= 0.5:
@@ -381,7 +384,12 @@ def price_item(item: dict, db: PriceDB, max_age_s: float = 3 * 24 * 3600) -> dic
     """Price one receipt item: exact word-match lookup first, LLM verify on
     the OR-candidate pool as a rescue. Returns a result row (never raises)."""
     from price_agent import Tile
-    name = item["name"]
+    # Match on the CLEANED name when available (OCR garble poisons token
+    # matching: "MASCV FRUIT JUICE ORA" finds nothing; "McCoy Fruit Juice
+    # Orange" doesn't).
+    name = item.get("clean_name") or item["name"]
+    if name != item["name"]:
+        item = {**item, "clean_name": name}
     line_total = item["line_total"]
     t0 = time.time()
 
@@ -424,7 +432,9 @@ def price_item(item: dict, db: PriceDB, max_age_s: float = 3 * 24 * 3600) -> dic
                     and (len(itoks & ptoks) / len(itoks)) >= 0.6):
                 savings = max(0.0, round(line_total - cheapest["price"] * qty, 2))
                 return {**item, "matchStatus": "exact", "confidence": 1.0,
-                        "match": cheapest, "alternatives": chains[1:4],
+                        "match": cheapest,
+                        "productName": cheapest["productName"],
+                        "alternatives": chains[1:4],
                         "savings": savings}
             # Ambiguous word-overlap hit (e.g. "Milo" cereal vs Milo snack
             # bars): fall through to the LLM verifier with the same pool —
@@ -474,10 +484,22 @@ def price_item(item: dict, db: PriceDB, max_age_s: float = 3 * 24 * 3600) -> dic
                     prows = []
                     line_toks = {t.replace("'", "") for t in _tokenize(name)
                                  if not re.fullmatch(r"\d+(g|kg|ml|l|pk|m)?", t)}
+                    # Brand gate: the first word of the receipt line is almost
+                    # always the brand (McCoy, Maggi, Indomie). If the
+                    # candidate doesn't contain it, the LLM matched on
+                    # category alone — wrong product.
+                    first_word = (name.split()[0].lower().replace("'", "")
+                                  if name.split() else "")
                     for ch in choices:
                         try:
                             cand = pool[int(ch.sku)]
                         except (ValueError, IndexError):
+                            continue
+                        if (first_word and len(first_word) >= 4
+                                and first_word not in cand["product_name"].lower().replace("'", "")):
+                            print(f"[receipt] brand gate: {name!r} -> "
+                                  f"{cand['product_name']!r} lacks brand "
+                                  f"{first_word!r} (conf {ch.match_confidence})")
                             continue
                         # Token sanity: the receipt's words must actually be
                         # representable in the candidate. The LLM sometimes
@@ -519,6 +541,7 @@ def price_item(item: dict, db: PriceDB, max_age_s: float = 3 * 24 * 3600) -> dic
                             return {**item, "matchStatus": "llm",
                                     "confidence": choices[0].match_confidence,
                                     "match": cheapest,
+                                    "productName": cheapest["productName"],
                                     "alternatives": chains[1:4],
                                     "savings": savings}
             except Exception as ex:  # noqa: BLE001 — LLM stage is best-effort
@@ -526,7 +549,7 @@ def price_item(item: dict, db: PriceDB, max_age_s: float = 3 * 24 * 3600) -> dic
                       f"{type(ex).__name__}: {str(ex)[:90]}")
 
     return {**item, "matchStatus": "none", "confidence": 0.0, "match": None,
-            "alternatives": [], "savings": 0.0,
+            "productName": None, "alternatives": [], "savings": 0.0,
             "elapsed_s": round(time.time() - t0, 1)}
 
 

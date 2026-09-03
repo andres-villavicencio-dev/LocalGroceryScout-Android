@@ -376,7 +376,21 @@ private fun ReceiptItemRow(item: ReceiptItem) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(item.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Column(Modifier.weight(1f)) {
+                    // Prefer the matched product's real DB name — receipt
+                    // printouts are truncated/garbled ("MCCOY FRUIT JUICE ORA").
+                    val title = item.productName
+                        ?: item.cleanName
+                        ?: item.name
+                    Text(title, style = MaterialTheme.typography.bodyMedium)
+                    if (title != item.name) {
+                        Text(
+                            "on receipt: ${item.name}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 Text("$${"%.2f".format(item.lineTotal)}", style = MaterialTheme.typography.bodyMedium)
             }
             when {

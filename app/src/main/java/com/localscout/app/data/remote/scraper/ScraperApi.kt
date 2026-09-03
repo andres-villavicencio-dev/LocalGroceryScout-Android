@@ -90,12 +90,14 @@ data class ReceiptMatch(
 
 @Serializable
 data class ReceiptItem(
-    val name: String,
+    val name: String,                         // as printed on the receipt
+    @SerialName("clean_name") val cleanName: String? = null,
     val qty: Double = 1.0,
     @SerialName("line_total") val lineTotal: Double,
     val matchStatus: String = "none",        // "exact" | "llm" | "none"
     val confidence: Double = 0.0,
     val match: ReceiptMatch? = null,
+    val productName: String? = null,          // matched DB product's real name
     val savings: Double = 0.0,
 )
 
