@@ -81,11 +81,34 @@ class ReceiptViewModel @Inject constructor(
     }
 }
 
-/** Downscale + re-encode; null when the URI can't be decoded. */
-fun compressForOcr(context: Context, uri: Uri): ByteArray? = try {
+/**
+ * Downscale + re-encode; null when the URI can't be decoded.
+ *
+ * Two-step decode with subsampling: camera originals are 12-48MP and a naive
+ * decode allocates a 50-200MB bitmap — instant OOM on older phones (and
+ * OutOfMemoryError is an Error, not an Exception, so it bypasses naive
+ * catch blocks and kills the app).
+ */
+fun compressForOcr(context: Context, uri: Uri): ByteArray? {
+    return try {
     val input = context.contentResolver.openInputStream(uri) ?: return null
     val raw = input.use { it.readBytes() }
-    var bmp = BitmapFactory.decodeByteArray(raw, 0, raw.size) ?: return null
+
+    // Pass 1: bounds only (cheap)
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    // Pass 2: subsample so the decoded bitmap is <= ~1600px long edge
+    val sample = maxOf(
+        1,
+        minOf(bounds.outWidth, bounds.outHeight) / 1600,
+    ).coerceAtLeast(1)
+    val opts = BitmapFactory.Options().apply {
+        inSampleSize = sample
+        inPreferredConfig = Bitmap.Config.RGB_565   // half the RAM of ARGB_8888
+    }
+    var bmp = BitmapFactory.decodeByteArray(raw, 0, raw.size, opts) ?: return null
     val longEdge = maxOf(bmp.width, bmp.height)
     if (longEdge > 1600) {
         val scale = 1600f / longEdge
@@ -97,6 +120,9 @@ fun compressForOcr(context: Context, uri: Uri): ByteArray? = try {
         bmp.compress(Bitmap.CompressFormat.JPEG, 82, out)
         out.toByteArray()
     }
-} catch (_: Exception) {
-    null
+    } catch (t: Throwable) {
+        // Throwable on purpose: OutOfMemoryError from a huge photo must not
+        // kill the app — degrade to "couldn't read image" instead.
+        null
+    }
 }

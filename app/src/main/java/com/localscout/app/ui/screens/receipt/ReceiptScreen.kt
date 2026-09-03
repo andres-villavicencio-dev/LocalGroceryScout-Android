@@ -3,12 +3,6 @@ package com.localscout.app.ui.screens.receipt
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,15 +47,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.localscout.app.ui.screens.search.TrolleyLoader
-import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
-import coil.compose.AsyncImage
 import java.io.File
 
 /**
@@ -129,12 +119,17 @@ private fun CaptureStep(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri -> onCaptured(uri) }
 
-    // Camera capture writes to a temp file, surfaced as a Uri
-    val imageCapture = remember { ImageCapture.Builder().build() }
-    var pendingFile by remember { mutableStateOf<java.io.File?>(null) }
+    // Camera capture writes to a temp file in cache/receipts/, shared with
+    // the camera app via FileProvider. (Uri.fromFile() crashes on modern
+    // Android with FileUriExposedException — never expose file:// to apps.)
+    val authority = "${context.packageName}.fileprovider"
+    var pendingUri by remember { mutableStateOf<android.net.Uri?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture(),
-    ) { ok -> if (ok) pendingFile?.let { onCaptured(android.net.Uri.fromFile(it)) } }
+    ) { ok ->
+        val uri = pendingUri
+        if (ok && uri != null) onCaptured(uri)
+    }
 
     Column(
         modifier = Modifier
@@ -163,11 +158,12 @@ private fun CaptureStep(
         Spacer(Modifier.height(32.dp))
         Card(
             onClick = {
-                val file = File(context.cacheDir, "receipt_capture.jpg")
-                pendingFile = file
-                val uri = android.net.Uri.fromFile(file)
-                val providerFuture = ProcessCameraProvider.getInstance(context)
-                // TakePicture uses the system camera app — simpler & reliable
+                val dir = java.io.File(context.cacheDir, "receipts").apply { mkdirs() }
+                val file = java.io.File(dir, "receipt_capture.jpg")
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    context, authority, file,
+                )
+                pendingUri = uri
                 cameraLauncher.launch(uri)
             },
             modifier = Modifier.fillMaxWidth(),
@@ -254,8 +250,21 @@ private fun ErrorStep(message: String, onRetry: () -> Unit, onPick: () -> Unit) 
 
 @Composable
 private fun ResultStep(receipt: ReceiptScanResponse, onScanAnother: () -> Unit) {
+    // Button lives in a fixed bottomBar — inside a LazyColumn it can end up
+    // clipped below the gesture-nav area on tall result lists.
+    Scaffold(
+        bottomBar = {
+            androidx.compose.material3.Button(
+                onClick = onScanAnother,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+            ) { Text("Scan another receipt") }
+        },
+    ) { innerPadding ->
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
@@ -311,12 +320,7 @@ private fun ResultStep(receipt: ReceiptScanResponse, onScanAnother: () -> Unit) 
                 }
             }
         }
-        item {
-            androidx.compose.material3.Button(
-                onClick = onScanAnother,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-            ) { Text("Scan another receipt") }
-        }
+    }
     }
 }
 

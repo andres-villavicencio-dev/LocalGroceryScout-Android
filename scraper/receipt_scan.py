@@ -39,9 +39,13 @@ MAX_LONG_EDGE = 1600
 SCOUTED_BRANDS = {
     "new world": "New World",
     "pak'nsave": "Pak'nSave",
+    "pak'ns save": "Pak'nSave",
+    "pak'nsave": "Pak'nSave",
+    "pak n save": "Pak'nSave",
     "pak ns save": "Pak'nSave",
     "paknsave": "Pak'nSave",
     "pns": "Pak'nSave",
+    "new world": "New World",
     "huckleberry": "Huckleberry",
     "huckleberry fresh collective": "Huckleberry",
     "the warehouse": "The Warehouse",
@@ -161,12 +165,49 @@ def extract_receipt(image_b64: str) -> dict:
             if not items:
                 return {"is_receipt": False, "store": None, "items": [],
                         "subtotal": None, "total": None}
+            receipt_total = _num(data.get("total"))
+            items_sum = round(sum(it["line_total"] for it in items), 2)
+            # OCR price sanity: vision models sometimes hallucinate a leading
+            # digit ($5.99 -> $85.99). If the sum badly disagrees with the
+            # printed total AND every item is single-quantity, one corrective
+            # re-read fixes the worst offenders cheaply.
+            if (receipt_total and items and attempt == 0
+                    and abs(items_sum - receipt_total) > 0.2 * receipt_total):
+                fix_prompt = (
+                    STRUCTURE_PROMPT
+                    + f"\n\nIMPORTANT: your previous reading summed to ${items_sum:.2f} "
+                      f"but the receipt's printed TOTAL is ${receipt_total:.2f}. "
+                      "At least one line price is misread (watch for a wrong "
+                      "leading digit, e.g. $85.99 instead of $5.99). Re-read "
+                      "every price carefully."
+                )
+                try:
+                    body2 = _generate_json(model, fix_prompt, image_b64, timeout_s)
+                    data2 = body2 if body2.get("is_receipt") else {}
+                    items2 = []
+                    for it in data2.get("items") or []:
+                        try:
+                            nm = str(it.get("name", "")).strip()
+                            qt = float(it.get("qty") or 1)
+                            lt = float(it.get("line_total") or 0)
+                        except (TypeError, ValueError):
+                            continue
+                        if nm and lt > 0:
+                            items2.append({"name": nm[:80], "qty": qt,
+                                           "line_total": round(lt, 2)})
+                    if items2:
+                        items_sum2 = round(sum(it["line_total"] for it in items2), 2)
+                        tot2 = _num(data2.get("total")) or receipt_total
+                        if abs(items_sum2 - tot2) <= abs(items_sum - receipt_total):
+                            items = items2          # better reading wins
+                except Exception:               # noqa: BLE001 — keep v1 reading
+                    pass
             return {
                 "is_receipt": True,
                 "store": (data.get("store") or "").strip() or None,
                 "items": items,
                 "subtotal": _num(data.get("subtotal")),
-                "total": _num(data.get("total")),
+                "total": receipt_total,
             }
         except Exception as ex:     # noqa: BLE001
             last_err = ex
@@ -184,12 +225,16 @@ def _num(v) -> float | None:
 # ----------------------------------------------------------------- store
 
 def canonical_store(raw: str | None) -> dict:
-    """Map a receipt store name to {raw, canonical, scouted}."""
+    """Map a receipt store name to {raw, canonical, scouted}. Apostrophes and
+    punctuation vary wildly ("PAK'nSAVE" / "PAK'n SAVE" / "PAK N SAVE")."""
     if not raw:
         return {"raw": None, "canonical": None, "scouted": False}
-    lc = raw.lower().strip()
+    lc = raw.lower().replace("'", "").replace("\u2019", "").strip()
+    lc = " ".join(lc.split())                     # collapse whitespace
+    collapsed = lc.replace(" ", "")               # "PAK'n SAVE" -> "paknsave"
     for key, brand in {**UNSCOUTED_BRANDS, **SCOUTED_BRANDS}.items():
-        if key in lc:
+        k = key.replace("'", "")
+        if k in lc or k in collapsed:
             scouted = brand in SCOUTED_BRANDS.values()
             return {"raw": raw.strip(), "canonical": brand, "scouted": scouted}
     return {"raw": raw.strip(), "canonical": None, "scouted": False}
