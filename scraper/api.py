@@ -21,10 +21,11 @@ import sys
 import json
 import time
 import urllib.request
+import base64
 import re
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -55,6 +56,11 @@ class SearchRequest(BaseModel):
     region: str = "NZ"
     radius_m: int = 6000
     force_refresh: bool = False
+
+
+class ReceiptScanJSON(BaseModel):
+    """Base64 fallback for clients that can't do multipart."""
+    image_b64: str = Field(min_length=100)
 
 
 @app.get("/health")
@@ -387,4 +393,45 @@ def search(req: SearchRequest):
 
     result["source"] = "live-scrape"
     result["duration_s"] = round(time.time() - t0, 1)
+    return result
+
+# ---------------------------------------------------------------- receipt
+
+@app.post("/receipt/scan")
+async def receipt_scan(request: Request):
+    """Photograph a grocery receipt -> extracted items priced at their cheapest
+    scouted store, with per-item + total savings estimate.
+
+    Accepts multipart/form-data 'file' (preferred). Images are processed in
+    memory and never written to disk.
+    """
+    import receipt_scan
+    ctype = request.headers.get("content-type", "")
+    if not ctype.startswith("multipart/form-data"):
+        raise HTTPException(422, "send multipart/form-data with a 'file' field "
+                                 "(or use /receipt/scan_json)")
+    form = await request.form()
+    upload = form.get("file")
+    if upload is None:
+        raise HTTPException(422, "multipart field 'file' missing")
+    image_bytes = await upload.read()
+    if not image_bytes:
+        raise HTTPException(422, "empty upload")
+    result, status = receipt_scan.scan_receipt(image_bytes, db)
+    if status != 200:
+        raise HTTPException(status, result.get("error", "receipt scan failed"))
+    return result
+
+
+@app.post("/receipt/scan_json")
+def receipt_scan_json(req: ReceiptScanJSON):
+    """Base64-JSON twin of /receipt/scan for simple HTTP clients."""
+    import receipt_scan, base64 as _b64
+    try:
+        image_bytes = _b64.b64decode(req.image_b64, validate=True)
+    except Exception:  # noqa: BLE001
+        raise HTTPException(422, "image_b64 is not valid base64")
+    result, status = receipt_scan.scan_receipt(image_bytes, db)
+    if status != 200:
+        raise HTTPException(status, result.get("error", "receipt scan failed"))
     return result
