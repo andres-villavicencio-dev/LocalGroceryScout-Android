@@ -29,12 +29,17 @@ from store_discovery import slugify
 
 OLLAMA_GENERATE = "http://192.168.1.72:11434/api/generate"
 # Benchmarked on real receipts (PAK'nSAVE Dunedin, Sep 2026):
-#   gemma4:e4b: 13-14s, 6/8 prices correct, total extracted & sum matches
-#   gemma3:latest: 28-29s, 4/8 correct, hallucinated a price, no total
-# gemma4:e4b wins both speed and accuracy (MoE: only ~3.1GB VRAM resident).
+#   gemma4:e4b:        13-14s, 6/8 prices, flaky run-to-run
+#   gemma3:latest:     28-29s, 4/8, hallucinates prices, misses the total
+#   gemma4:26b-qat:    34s (CPU-offloaded), 6/8, sum==total
+#   glm-5.3-flash:cloud: 15s, 6/8, sum==total, best clean names — BUT the
+#     cloud account has session quotas, so it's the ESCALATION tier, not
+#     the default (used when local reads disagree with the printed total).
 OCR_MODEL = "gemma4:e4b"
 OCR_FALLBACK_MODEL = "gemma3:latest"
 OCR_TIMEOUT_S = 120
+CLOUD_OCR_MODEL = "glm-5.3-flash:cloud"
+CLOUD_OCR_TIMEOUT_S = 180
 
 MAX_IMAGE_BYTES = 6 * 1024 * 1024
 MAX_LONG_EDGE = 1600
@@ -245,9 +250,53 @@ def extract_receipt(image_b64: str) -> dict:
             continue
     if first is None:
         raise ValueError(f"receipt OCR failed on all attempts: {last_err}")
-    if second is not None:
-        return _reconcile(first, second)
-    return first
+    reading = _reconcile(first, second) if second is not None else first
+
+    # Cloud escalation: local vision models occasionally misread a leading
+    # digit or drop the printed total. When the reconciled sum badly
+    # disagrees with the printed total (or no total was read at all while
+    # the receipt clearly has items), one cloud pass settles it — the cloud
+    # model has session quotas, so it only fires when local reads look wrong.
+    items_sum = round(sum(i["line_total"] for i in reading["items"]), 2)
+    total = reading.get("total")
+    suspicious = (total is None and len(reading["items"]) >= 4) or (
+        total is not None and abs(items_sum - total) > 0.1 * total)
+    if suspicious:
+        try:
+            cloud_payload = {"model": CLOUD_OCR_MODEL, "stream": False,
+                             "format": "json",
+                             "options": {"temperature": 0.1},
+                             "messages": [{"role": "user",
+                                           "content": STRUCTURE_PROMPT,
+                                           "images": [image_b64]}]}
+            req = urllib.request.Request(
+                OLLAMA_GENERATE.replace("/api/generate", "/api/chat"),
+                data=json.dumps(cloud_payload).encode(),
+                headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=CLOUD_OCR_TIMEOUT_S) as r:
+                body = json.loads(r.read().decode())
+            raw = body["message"]["content"].strip()
+            start, end = raw.find("{"), raw.rfind("}")
+            if start >= 0 and end > start:
+                cdata = json.loads(raw[start:end + 1])
+                if cdata.get("is_receipt"):
+                    c_items, c_sub, c_total, c_store = _parse(cdata)
+                    c_sum = round(sum(i["line_total"] for i in c_items), 2)
+                    # adopt the cloud reading when it agrees with the printed
+                    # total better than the local reading does
+                    local_err = abs(items_sum - total) if total is not None else 10**9
+                    cloud_err = (abs(c_sum - c_total)
+                                 if c_total is not None else 10**9)
+                    if c_items and cloud_err < local_err:
+                        print(f"[receipt] cloud escalation: local sum {items_sum} "
+                              f"vs total {total}; cloud sum {c_sum} vs {c_total} "
+                              f"— adopting cloud reading")
+                        return {"is_receipt": True, "store": c_store or reading["store"],
+                                "items": c_items, "subtotal": c_sub, "total": c_total}
+        except Exception as ex:  # noqa: BLE001 — cloud is best-effort
+            print(f"[receipt] cloud escalation failed: {type(ex).__name__}: "
+                  f"{str(ex)[:90]}")
+    return reading
 
 
 def _num(v) -> float | None:
