@@ -325,6 +325,10 @@ class PriceAgent:
                 tile = next((t for t in tiles if t.sku == ch.sku), None)
                 if not tile:
                     continue
+                # Foodstuffs CDN product image (verified pattern, 400x400 PNG)
+                sku_digits = (tile.sku or "").split("-")[0].split("_")[0]
+                image_url = (f"https://a.fsimg.co.nz/product/retail/fan/image/400x400/{sku_digits}.png"
+                             if sku_digits.isdigit() and len(sku_digits) >= 5 else None)
                 self.db.upsert_price(Price(
                     store_id=store.id,
                     product_slug=slugify(ch.canonical_name),
@@ -333,6 +337,7 @@ class PriceAgent:
                     currency=tile.currency,
                     unit=ch.unit,
                     unit_price=tile.per_unit,
+                    image_url=image_url,
                     sku=tile.sku,
                     page_url=(BRAND_SITES[brand]["product_url"]
                               .format(sku=tile.sku.replace("-EA-000", "_ea_000"),

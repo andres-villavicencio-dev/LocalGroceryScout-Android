@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS prices (
     unit_price TEXT,                   -- "$2.45/1L" raw per-unit string
     sku TEXT,                          -- site SKU, e.g. 5260709-EA-000
     page_url TEXT,
+    image_url TEXT,                    -- product photo from the source site
     scraped_at REAL NOT NULL,
     UNIQUE(store_id, product_slug, unit)
 );
@@ -64,6 +65,7 @@ CREATE TABLE IF NOT EXISTS price_history (
     currency TEXT NOT NULL DEFAULT 'NZD',
     unit TEXT,
     unit_price TEXT,
+    image_url TEXT,
     scraped_at REAL NOT NULL            -- unix seconds — the scrap DATE
 );
 
@@ -121,6 +123,7 @@ class Price:
     unit_price: Optional[str] = None
     sku: Optional[str] = None
     page_url: Optional[str] = None
+    image_url: Optional[str] = None
     scraped_at: float = field(default_factory=time.time)
     id: Optional[int] = None
 
@@ -131,6 +134,14 @@ class PriceDB:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.tx() as cur:
             cur.executescript(SCHEMA)
+            # Migrations: CREATE TABLE IF NOT EXISTS won't touch existing
+            # tables, so new columns land here. Cheap + idempotent.
+            existing = {r[1] for r in cur.execute("PRAGMA table_info(prices)")}
+            if "image_url" not in existing:
+                cur.execute("ALTER TABLE prices ADD COLUMN image_url TEXT")
+            existing_h = {r[1] for r in cur.execute("PRAGMA table_info(price_history)")}
+            if "image_url" not in existing_h:
+                cur.execute("ALTER TABLE price_history ADD COLUMN image_url TEXT")
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Cursor]:
@@ -201,22 +212,25 @@ class PriceDB:
             # the current-price upsert below hits an existing row.
             cur.execute(
                 """INSERT INTO price_history (store_id, product_slug, price_cents,
-                                              currency, unit, unit_price, scraped_at)
-                   VALUES (?,?,?,?,?,?,?)""",
+                                              currency, unit, unit_price, image_url, scraped_at)
+                   VALUES (?,?,?,?,?,?,?,?)""",
                 (price.store_id, price.product_slug, price.price_cents,
-                 price.currency, price.unit, price.unit_price, price.scraped_at))
+                 price.currency, price.unit, price.unit_price, price.image_url,
+                 price.scraped_at))
             cur.execute(
                 """INSERT INTO prices (store_id, product_slug, product_name, price_cents,
-                                       currency, unit, unit_price, sku, page_url, scraped_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)
+                                       currency, unit, unit_price, sku, page_url,
+                                       image_url, scraped_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(store_id, product_slug, unit) DO UPDATE SET
                      price_cents=excluded.price_cents, product_name=excluded.product_name,
                      unit_price=excluded.unit_price, sku=excluded.sku,
-                     page_url=excluded.page_url, scraped_at=excluded.scraped_at
+                     page_url=excluded.page_url, image_url=excluded.image_url,
+                     scraped_at=excluded.scraped_at
                    RETURNING id""",
                 (price.store_id, price.product_slug, price.product_name, price.price_cents,
                  price.currency, price.unit, price.unit_price, price.sku, price.page_url,
-                 price.scraped_at),
+                 price.image_url, price.scraped_at),
             )
             row = cur.fetchone()
             if row is None:

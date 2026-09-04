@@ -80,7 +80,14 @@ def jsonld_price(url):
                 price = float(offers.get("price"))
             except (TypeError, ValueError):
                 continue
-            return {"name": d.get("name", ""), "price": price}
+            # Product image: JSON-LD image may be a string or a list of
+            # strings/objects ("ImageObject"/"url").
+            img = d.get("image")
+            if isinstance(img, list):
+                img = img[0] if img else None
+            if isinstance(img, dict):
+                img = img.get("url")
+            return {"name": d.get("name", ""), "price": price, "image": img}
     return None
 
 def main():
@@ -114,6 +121,7 @@ def main():
                 unit="",
                 sku=u.rsplit("/", 1)[-1].replace(".html", ""),
                 page_url=u,
+                image_url=p.get("image"),
             ))
             n_ok += 1
         if (i + 1) % 50 == 0:

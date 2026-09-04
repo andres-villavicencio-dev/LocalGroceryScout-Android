@@ -126,6 +126,11 @@ def hits_to_prices(hits: list[dict], store_id: int) -> list:
             unit_price = (f"${comp['pricePerUnit'] / 100:.2f}/"
                           f"{comp.get('unitQuantityUom', 'ea')}")
         name = f"{h.get('brand', '')} {h.get('name', '')}".strip()
+        # Foodstuffs CDN image, keyed off the numeric product id (verified
+        # pattern used by fs_image_url in api.py).
+        pid = str(h.get("productId") or "")
+        image_url = (f"https://a.fsimg.co.nz/product/retail/fan/image/400x400/{pid}.png"
+                     if pid.isdigit() and len(pid) >= 5 else None)
         out.append(Price(
             store_id=store_id,
             product_slug=slugify(name),
@@ -136,6 +141,7 @@ def hits_to_prices(hits: list[dict], store_id: int) -> list:
             unit_price=unit_price,
             sku=h.get("productId"),
             page_url=f"{BASE}/shop/product/{h.get('productId', '').lower()}?name={slugify(h.get('name', '')).replace(' ', '-')}",
+            image_url=image_url,
         ))
     return out
 

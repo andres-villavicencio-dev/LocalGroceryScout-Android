@@ -216,7 +216,7 @@ def compare(req: CompareRequest):
     with db.tx() as cur:
         cur.execute(
             f"""SELECT p.product_name, p.product_slug, MIN(p.price_cents) AS price_cents,
-                       p.unit, p.sku, p.page_url,
+                       p.unit, p.sku, p.page_url, p.image_url,
                        s.brand AS store_brand, s.name AS store_name, s.id AS store_id
                 FROM prices p JOIN stores s ON s.id = p.store_id
                 WHERE ({like})
