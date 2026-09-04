@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -462,6 +464,20 @@ private fun PriceCard(
                 verticalAlignment = Alignment.Top,
                 modifier = Modifier.fillMaxWidth(),
             ) {
+                // Product image: same CDN shot as the picker, so the cheapest
+                // card shows *what* you're buying at a glance.
+                if (price.imageUrl != null) {
+                    AsyncImage(
+                        model = price.imageUrl,
+                        contentDescription = price.productName ?: price.store,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(onContainer.copy(alpha = 0.08f)),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                }
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
