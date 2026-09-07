@@ -18,10 +18,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.PlaylistAdd
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
@@ -53,6 +57,7 @@ fun SearchResultsArea(
     onRetry: () -> Unit,
     onProductSelect: (String) -> Unit,
     onBackToPicker: () -> Unit,
+    onAddToList: (ProductOption) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxWidth()) {
@@ -109,6 +114,7 @@ fun SearchResultsArea(
                     options = state.productOptions,
                     source = state.result!!.modelUsed,
                     onSelect = onProductSelect,
+                    onAddToList = onAddToList,
                 )
             // ── Step 2b: chosen product → cheapest-across-stores list ────────
             state.result != null && state.selectedProduct != null -> {
@@ -153,6 +159,7 @@ private fun ProductPickerGrid(
     options: List<ProductOption>,
     source: String,
     onSelect: (String) -> Unit,
+    onAddToList: (ProductOption) -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -174,7 +181,11 @@ private fun ProductPickerGrid(
                 key = { idx, it -> "opt-${it.productName}-$idx" },
             ) { idx, opt ->
                 SpringEntrance(index = idx) {
-                    ProductOptionCard(opt = opt, onClick = { onSelect(opt.productName) })
+                    ProductOptionCard(
+                        opt = opt,
+                        onClick = { onSelect(opt.productName) },
+                        onAddToList = { onAddToList(opt) },
+                    )
                 }
             }
         }
@@ -182,7 +193,11 @@ private fun ProductPickerGrid(
 }
 
 @Composable
-private fun ProductOptionCard(opt: ProductOption, onClick: () -> Unit) {
+private fun ProductOptionCard(
+    opt: ProductOption,
+    onClick: () -> Unit,
+    onAddToList: () -> Unit = {},
+) {
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
@@ -262,6 +277,15 @@ private fun ProductOptionCard(opt: ProductOption, onClick: () -> Unit) {
                     style = MaterialTheme.typography.labelSmall,
                     color = if (opt.isScouted) MaterialTheme.colorScheme.tertiary
                     else MaterialTheme.colorScheme.error,
+                )
+            }
+            // Add-to-list affordance: taps here do NOT trigger the card's
+            // product-select onClick (separate composable node wins the gesture).
+            IconButton(onClick = onAddToList) {
+                Icon(
+                    imageVector = Icons.Outlined.PlaylistAdd,
+                    contentDescription = "Add ${opt.productName} to a list",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

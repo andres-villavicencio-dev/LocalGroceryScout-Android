@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -26,13 +27,18 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -178,7 +184,86 @@ fun SearchScreen(
             onRetry = viewModel::search,
             onProductSelect = viewModel::selectProduct,
             onBackToPicker = viewModel::backToPicker,
+            onAddToList = viewModel::requestAddToList,
             modifier = Modifier.padding(top = 16.dp),
         )
     }
+
+    // Add-to-list dialog: pick which local list gets the product.
+    state.pendingAddToList?.let { pending ->
+        AddToListDialog(
+            pending = pending,
+            lists = state.listChoices,
+            onConfirmExisting = viewModel::confirmAddToList,
+            onCreateAndAdd = viewModel::createListAndAdd,
+            onDismiss = viewModel::dismissAddToList,
+        )
+    }
+}
+
+/**
+ * Choose-a-list dialog for "add to list" from search results. With no lists
+ * yet it offers inline creation; the item lands in the new list immediately.
+ */
+@Composable
+private fun AddToListDialog(
+    pending: ProductOption,
+    lists: List<com.localscout.app.domain.model.ShoppingList>,
+    onConfirmExisting: (String) -> Unit,
+    onCreateAndAdd: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var newListName by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add to list") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = pending.productName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                if (lists.isEmpty()) {
+                    Text(
+                        text = "No lists yet — name one to create:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                } else {
+                    lists.forEach { list ->
+                        TextButton(onClick = { onConfirmExisting(list.id) }) {
+                            Text(
+                                text = list.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        }
+                    }
+                    Text(
+                        text = "…or create a new list:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
+                    )
+                }
+                OutlinedTextField(
+                    value = newListName,
+                    onValueChange = { newListName = it },
+                    label = { Text("New list name") },
+                    singleLine = true,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = newListName.isNotBlank(),
+                onClick = { onCreateAndAdd(newListName.trim()) },
+            ) { Text("Create & add") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }

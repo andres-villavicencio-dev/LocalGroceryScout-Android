@@ -107,6 +107,19 @@ def main() -> int:
             print(f"✗ {q}: {type(ex).__name__}: {str(ex)[:90]}")
         time.sleep(5)  # be polite between site hits
 
+    # Phase 3: chains behind bot walls, scraped via their android apps on the
+    # phone (adb). Woolworths site = Akamai, Pak'nSave site = Cloudflare; the
+    # apps on a trusted device are the only way in. Phone must be plugged in
+    # + unlocked. Each shelf walk takes ~1-3 min — keep query maps small.
+    try:
+        from app_scraper import scrape_query as app_scrape_query
+        print("\n📱 Woolworths (app) phase:")
+        app_scrape_query(db, "tea", "woolworths")
+        print("\n📱 Pak'nSave (app) phase:")
+        app_scrape_query(db, "tea", "paknsave")
+    except Exception as ex:  # noqa: BLE001 — missing phone must not kill the run
+        print(f"✗ app scrapers: {type(ex).__name__}: {str(ex)[:90]}")
+
     stats = db.stats()
     print(
         f"\nDone in {time.time() - t0:.0f}s · {total_prices} prices · "

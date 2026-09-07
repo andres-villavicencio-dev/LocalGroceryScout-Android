@@ -243,12 +243,10 @@ class PriceDB:
     def price_history(self, query_slug: str, days: int = 90,
                       store_id: Optional[int] = None) -> list[dict]:
         """Time series for charting: every scrape of products matching the
-        query slug, oldest first. Word-wise matching like the cache lookup,
-        so "milo cereal" pulls the full "nestle milo breakfast cereal" series."""
-        import re as _re
-        STOP = {"the", "and", "for", "with", "from"}
-        words = [w for w in _re.split(r"[^a-z0-9]+", query_slug.lower())
-                 if len(w) >= 3 and w not in STOP]
+        query slug, oldest first. Word-wise whole-word matching like the
+        cache lookup, so "milo cereal" pulls the full "nestle milo breakfast
+        cereal" series while "tea" excludes "steak"."""
+        words = self._slug_words(query_slug)
         if not words:
             return []
         like_clauses = " AND ".join(
@@ -263,21 +261,62 @@ class PriceDB:
                     WHERE ({like_clauses}) AND h.scraped_at > ? {store_clause}
                     ORDER BY h.scraped_at ASC""",
                 params)
-            return [dict(r) for r in cur.fetchall()]
+            rows = [dict(r) for r in cur.fetchall()]
+        # Whole-word enforcement (substring LIKE above is only a prefilter).
+        return [r for r in rows if self._words_match(r["product_slug"], words)]
+
+    # ---- query → slug word matching ----------------------------------------
+    # Bare substring LIKE is wrong for short words: "tea" matches "steak",
+    # "steamed", "teapot". SQL LIKE stays as a cheap prefilter; this regex
+    # enforces whole-word semantics (plural allowed: "egg" matches "eggs",
+    # "steak" matches "steaks") on the rows that survive the prefilter.
+    @staticmethod
+    def _slug_words(query_slug: str) -> list[str]:
+        import re as _re
+        STOP = {"the", "and", "for", "with", "from"}
+        return [w for w in _re.split(r"[^a-z0-9]+", query_slug.lower())
+                if len(w) >= 3 and w not in STOP]
+
+    @staticmethod
+    def _words_match(slug: str, words: list[str]) -> bool:
+        import re as _re
+        for w in words:
+            if not _re.search(rf"(^|[^a-z0-9]){w}(s|es)?([^a-z0-9]|$)", slug):
+                return False
+        return True
+
+    # Tokens that mark non-grocery homegoods/lookalikes. A row carrying one of
+    # these (in a token the user did NOT search for) is demoted: "tea" shouldn't
+    # return tea-SCENTED razors, teapots or storage jars — but query "mug" must
+    # still return mugs, so the check is relative to the query words.
+    NON_FOOD_TOKENS = {
+        "scent", "scented", "fragrance", "teapot", "tealight", "tealights",
+        "candle", "candles", "mug", "mugs", "jar", "jars", "container",
+        "razor", "razors", "soap",
+        # Spotted in staple regressions: "Milk & Honey Handwash" (milk),
+        # "Egg Incubator" (eggs), shower-cream body wash (milk).
+        "handwash", "incubator", "shower",
+    }
+
+    @classmethod
+    def _row_is_relevant(cls, slug: str, words: list[str]) -> bool:
+        """Whole-word match PLUS non-food-token demotion."""
+        import re as _re
+        toks = set(_re.split(r"[^a-z0-9]+", slug.lower()))
+        if not cls._words_match(slug, words):
+            return False
+        return not any(t in cls.NON_FOOD_TOKENS - set(words) for t in toks)
 
     def fresh_prices_for_query(self, query_slug: str, max_age_s: float) -> list[dict]:
         """Return recent prices matching the query slug.
 
         Matching is word-wise: every word of the query slug (minus stopwords)
-        must appear in the product slug. "milo cereal" matches
+        must appear in the product slug as a whole word. "milo cereal" matches
         "nestle milo breakfast cereal" (both words present) even though the
-        exact phrase never appears contiguously. Words shorter than 3 chars
-        are ignored as noise.
+        exact phrase never appears contiguously; "tea" does NOT match
+        "steak" or "teapot". Words shorter than 3 chars are ignored as noise.
         """
-        import re as _re
-        STOP = {"the", "and", "for", "with", "from"}
-        words = [w for w in _re.split(r"[^a-z0-9]+", query_slug.lower())
-                 if len(w) >= 3 and w not in STOP]
+        words = self._slug_words(query_slug)
         if not words:
             return []
         like_clauses = " AND ".join(
@@ -294,7 +333,9 @@ class PriceDB:
                     GROUP BY p.store_id, p.product_slug, p.price_cents, COALESCE(p.unit, '')
                     ORDER BY s.distance_km, p.price_cents""",
                 (*words, time.time() - max_age_s))
-            return [dict(r) for r in cur.fetchall()]
+            rows = [dict(r) for r in cur.fetchall()]
+        # Whole-word + relevance enforcement (LIKE above is only a prefilter).
+        return [r for r in rows if self._row_is_relevant(r["product_slug"], words)]
 
     # ---- tracked items (scheduled scraping list) ----
     DEFAULT_TRACKED = [

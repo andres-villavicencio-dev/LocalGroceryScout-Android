@@ -326,9 +326,6 @@ Rules:
 
 
 @app.post("/search")
-
-
-@app.post("/search")
 def search(req: SearchRequest):
     from store_discovery import slugify
     t0 = time.time()
@@ -370,6 +367,15 @@ def search(req: SearchRequest):
         import vision_scraper
         v_rows = vision_scraper.vision_search(req.query, db)
         if v_rows:
+            # Relevance gate: the vision model matches on screenshot
+            # similarity, not names, so tea-*scented* razors and soap sneak
+            # in. Demote rows whose name carries a non-food token the user
+            # didn't search for (relative to the query, so "mug" still works).
+            from price_db import PriceDB as _PDB
+            _words = _PDB._slug_words(slugify(req.query))
+            v_rows = [r for r in v_rows
+                      if _PDB._row_is_relevant(
+                          slugify(r.get("productName") or ""), _words)]
             result["results"].extend(v_rows)
             result["results"].sort(key=lambda r: r["price"])
     except Exception as ex:  # noqa: BLE001

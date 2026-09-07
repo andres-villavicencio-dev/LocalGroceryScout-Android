@@ -6,9 +6,11 @@ import com.localscout.app.data.location.LocationRepository
 import com.localscout.app.data.remote.ollama.OllamaRepository
 import com.localscout.app.data.remote.scraper.ScraperRepository
 import com.localscout.app.data.settings.SettingsRepository
+import com.localscout.app.data.shoppinglist.ShoppingListRepository
 import com.localscout.app.domain.model.GeoLocation
 import com.localscout.app.domain.model.ParsedPrice
 import com.localscout.app.domain.model.SearchResult
+import com.localscout.app.domain.model.ShoppingList
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -55,6 +57,10 @@ data class SearchUiState(
     val isComparing: Boolean = false,
     /** Reverse-geocoded area label, e.g. "Ponsonby, Auckland" (null = hidden). */
     val detectedAddress: String? = null,
+    /** Local lists for the add-to-list picker (names + ids only). */
+    val listChoices: List<ShoppingList> = emptyList(),
+    /** Product awaiting a list choice; non-null shows the add-to-list dialog. */
+    val pendingAddToList: ProductOption? = null,
 ) {
     /** Rows for the selected product, sorted cheapest first. */
     val productRows: List<com.localscout.app.domain.model.ParsedPrice>
@@ -96,6 +102,7 @@ class SearchViewModel @Inject constructor(
     private val scraper: ScraperRepository,
     private val location: LocationRepository,
     private val settings: SettingsRepository,
+    private val shoppingLists: ShoppingListRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SearchUiState())
@@ -120,6 +127,59 @@ class SearchViewModel @Inject constructor(
 
     fun onQueryChange(q: String) {
         _state.value = _state.value.copy(query = q)
+    }
+
+    init {
+        // Local lists for the add-to-list picker; refreshes on every change.
+        viewModelScope.launch {
+            shoppingLists.lists.collect { lists ->
+                _state.value = _state.value.copy(listChoices = lists)
+            }
+        }
+    }
+
+    /** User tapped "add to list" on a picker card — stash it, show the dialog. */
+    fun requestAddToList(option: ProductOption) {
+        _state.value = _state.value.copy(pendingAddToList = option)
+    }
+
+    fun dismissAddToList() {
+        _state.value = _state.value.copy(pendingAddToList = null)
+    }
+
+    /** Create a new list, then add the pending product to it. */
+    fun createListAndAdd(name: String) {
+        viewModelScope.launch {
+            val listId = shoppingLists.createList(name)
+            confirmAddToList(listId)
+        }
+    }
+
+    /**
+     * Adds the pending product to the chosen list, carrying the product's
+     * cheapest SCOUTED row as bestPrice (estimate rows are excluded — a list
+     * price must be real). Falls back to the query text when the option has
+     * no concrete product name (single anonymous ollama results).
+     */
+    fun confirmAddToList(listId: String) {
+        val pending = _state.value.pendingAddToList ?: return
+        viewModelScope.launch {
+            // Which scouted row? Re-derive from the current result: the option
+            // carries only the cheapest price, not the full row set.
+            val rows = _state.value.result?.results
+                ?.filter { (it.productName ?: _state.value.query) == pending.productName }
+                .orEmpty()
+            val cheapestScouted = rows
+                .filter { it.reasoning?.contains("scrap", ignoreCase = true) == true }
+                .minByOrNull { it.price }
+            shoppingLists.addItem(
+                listId = listId,
+                name = pending.productName,
+                quantity = 1,
+                price = cheapestScouted,
+            )
+            _state.value = _state.value.copy(pendingAddToList = null)
+        }
     }
 
     fun search() {
