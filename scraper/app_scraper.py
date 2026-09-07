@@ -301,30 +301,38 @@ def _unit_from_name(name: str) -> Optional[str]:
 
 def ensure_app_foreground(app: str) -> None:
     pkg = APPS[app]["package"]
-    cur = adb("shell", "dumpsys", "window", timeout=15)
-    if pkg in cur and "MainActivity" in cur:
-        return
-    adb("shell", "monkey", "-p", pkg,
-        "-c", "android.intent.category.LAUNCHER", "1")
-    time.sleep(8)
+    # Verify the package OWNS the focused window — a monkey launch that
+    # hasn't rendered yet leaves the previous app focused; without this
+    # check the Sep 2026 PnS cold-start lost the race, and the next
+    # tap_text("Shop") matched "Shopping List update" on the Woolworths
+    # screen, derailing the whole walk into the wrong app.
+    for attempt in range(3):
+        cur = adb("shell", "dumpsys", "window", timeout=15)
+        focused = [ln for ln in cur.splitlines() if "mCurrentFocus" in ln]
+        if any(pkg in ln for ln in focused):
+            return
+        adb("shell", "monkey", "-p", pkg,
+            "-c", "android.intent.category.LAUNCHER", "1")
+        time.sleep(8)
+    raise RuntimeError(f"could not foreground {pkg} after 3 launches")
 
 
 def goto_products_tab(app: str) -> None:
-    xml = ui_dump()
-    # Back out of any drill-down (search results, PLP, subcats) to home first.
-    # Home is signalled per-app: Countdown shows the categories rail,
-    # PAK'nSAVE shows the grocery search bar.
-    home_marker = ('text="Categories"' if app == "woolworths"
-                   else "Search for groceries")
+    # Tap the Products/Shop tab directly whenever it is visible (the bottom
+    # bar persists across most screens), backing out only while it is absent.
+    # The old fixed home marker ("Categories" / "Search for groceries")
+    # broke on app updates — Sep 2026: the Woolworths redesign dropped the
+    # Categories rail, so backing out 6x from a PLP exited the app entirely
+    # and the tab was never found.
     tab_label = "Products" if app == "woolworths" else "Shop"
+    xml = ui_dump()
     for _ in range(6):
-        if home_marker in xml:
-            break
+        if tap_text(tab_label, xml, settle=4.0):
+            return
         adb("shell", "input", "keyevent", "4")
         time.sleep(2)
         xml = ui_dump()
-    if not tap_text(tab_label, xml, settle=4.0):
-        raise RuntimeError(f"{tab_label} tab not found")
+    raise RuntimeError(f"{tab_label} tab not found")
 
 
 def drill(path: list[str]) -> None:
