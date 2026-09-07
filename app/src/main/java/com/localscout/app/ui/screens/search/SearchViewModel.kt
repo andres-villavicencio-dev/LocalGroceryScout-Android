@@ -94,6 +94,8 @@ data class ProductOption(
     val isScouted: Boolean,
     /** Product thumbnail URL (Foodstuffs CDN), shared across the group's rows. */
     val imageUrl: String? = null,
+    /** Pack size ("1L", "100pk", "500g") — null when unknown. */
+    val unit: String? = null,
 )
 
 @HiltViewModel
@@ -274,6 +276,9 @@ class SearchViewModel @Inject constructor(
                             },
                             // First row with an image wins; Foodstuffs CDN thumbs
                             imageUrl = rows.firstNotNullOfOrNull { it.imageUrl },
+                            // Pack size from the cheapest row (rows in a group
+                            // share it); blank when the scraper had none.
+                            unit = rows.firstNotNullOfOrNull { it.unit }?.takeIf { it.isNotBlank() },
                         )
                     }
                     .sortedBy { it.cheapestPrice }

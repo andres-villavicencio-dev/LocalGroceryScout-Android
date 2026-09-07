@@ -143,7 +143,7 @@ def history(req: HistoryRequest):
             "date": time.strftime("%Y-%m-%d", time.localtime(r["scraped_at"])),
             "price": r["price_cents"] / 100,
             "currency": r["currency"],
-            "unit": r["unit"],
+            "unit": _display_unit(r["unit"], r["product_name"]),
             "unit_price": r["unit_price"],
         })
     return {
@@ -247,7 +247,7 @@ def compare(req: CompareRequest):
         return {
             "store": c["store_name"], "storeChain": c["store_brand"],
             "price": c["price_cents"] / 100, "currency": "NZD",
-            "unit": c["unit"] or None, "productName": c["product_name"],
+            "unit": _display_unit(c["unit"], c["product_name"]) or None, "productName": c["product_name"],
             "imageUrl": fs_image_url(c["sku"]), "url": c["page_url"],
         }
 
@@ -267,7 +267,7 @@ def compare(req: CompareRequest):
     data = {"matches": []}
     if candidates:
       cand_payload = [
-          {"index": i, "name": c["product_name"], "unit": c["unit"] or "",
+          {"index": i, "name": c["product_name"], "unit": _display_unit(c["unit"], c["product_name"]) or "",
            "store": c["store_brand"], "price": c["price_cents"] / 100}
           for i, c in enumerate(candidates)
       ]
@@ -488,7 +488,7 @@ def plan(req: PlanRequest):
                 "productName": best_row["product_name"],
                 "price": best_row["price_cents"] / 100,
                 "currency": "NZD",
-                "unit": best_row["unit"] or None,
+                "unit": _display_unit(best_row["unit"], best_row["product_name"]) or None,
             },
             # all chains that stock something matching, for the app's
             # per-item "elsewhere" hint
@@ -527,6 +527,29 @@ def plan(req: PlanRequest):
     }
 
 
+def _display_unit(unit: Optional[str], product_name: str) -> Optional[str]:
+    """Best human unit for a row: the scraped one, else the size embedded
+    in the product name. Cleans bare-number junk ("100" from a mis-split
+    "100pk") — an unreadable unit is worse than none."""
+    if unit and re.fullmatch(r"\d+", unit):
+        unit = None
+    if unit:
+        return unit
+    # Fallback: size baked into the name — "Tea Bags 100pk", "Milk 2L",
+    # "Green Beans 1kg", "Eggs 12ct". Take the LAST size-ish token so
+    # "Milo Cereal 500g Box" wins over a stray number.
+    m = re.findall(r"\d+(?:\.\d+)?\s*(?:pk|pack|ct|g|kg|ml|l|litre|liter)\b",
+                   product_name, flags=re.IGNORECASE)
+    if m:
+        return m[-1].strip().lower().replace(" ", "")
+    m = re.findall(r"\b\d+(?:\.\d+)?\s*(?:g|kg|ml|l)\b", product_name,
+                   flags=re.IGNORECASE)
+    if m and not m[-1].lower().endswith(("0", "5")):
+        # avoid "Tea 100" style false hits; keep 2L, 750ml, 400g etc.
+        return m[-1].strip().lower().replace(" ", "")
+    return None
+
+
 @app.post("/search")
 def search(req: SearchRequest):
     from store_discovery import slugify
@@ -541,7 +564,8 @@ def search(req: SearchRequest):
             results = [{
                 "store": r["store_name"], "storeChain": r["store_brand"],
                 "price": r["price_cents"] / 100, "currency": r["currency"],
-                "unit": r["unit"], "address": "unknown",
+                "unit": _display_unit(r["unit"], r["product_name"]),
+                "address": "unknown",
                 "distanceKm": round(r["distance_km"], 2) if r["distance_km"] else None,
                 "confidence": 1.0,   # scraped price = ground truth
                 "reasoning": "cached scrape",

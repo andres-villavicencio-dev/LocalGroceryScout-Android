@@ -283,10 +283,13 @@ private fun ShoppingItemRow(
             )
             val price = item.bestPrice
             if (price != null) {
+                // Legacy rows carry junk units ("100" from a mis-split "100pk");
+                // only display units that actually say something (contain a letter).
+                val cleanUnit = price.unit?.takeIf { u -> u.any { it.isLetter() } }
                 Text(
                     text = "$%.2f%s%s".format(
                         price.price,
-                        price.unit?.let { " / $it" } ?: "",
+                        cleanUnit?.let { " / $it" } ?: "",
                         price.store?.let { "  ·  $it" } ?: "",
                     ),
                     style = MaterialTheme.typography.bodySmall,

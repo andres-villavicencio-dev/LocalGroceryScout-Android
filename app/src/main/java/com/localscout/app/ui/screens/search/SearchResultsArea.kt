@@ -259,6 +259,7 @@ private fun ProductOptionCard(
                         append(" · ")
                         append(opt.storeCount)
                         append(if (opt.storeCount == 1) " store" else " stores")
+                        opt.unit?.let { append(" · ").append(it) }
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -428,7 +429,7 @@ private fun OtherShopCard(
                 // If this chain names the product differently, show it small.
                 price.productName?.let {
                     Text(
-                        text = it,
+                        text = it + (price.unit?.let { u -> "  ·  $u" } ?: ""),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 1.dp),
