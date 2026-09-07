@@ -325,6 +325,208 @@ Rules:
     return {"matches": verified[:5]}
 
 
+# ── Basket planning: cheapest chain for a whole list ─────────────────────────
+
+def _llm_validate_basket(pairs: list[tuple[str, str]]) -> list[bool]:
+    """One batched LLM call: is each (shopping-item, product) pair the same
+    KIND of grocery item? Returns a bool per pair; all-True on LLM failure
+    (graceful degradation — token scores already did the heavy lifting)."""
+    if not pairs:
+        return []
+    from price_agent import OLLAMA_URL, MATCH_MODEL, FALLBACK_MODEL
+    payload = {
+        "model": MATCH_MODEL,
+        "stream": False,
+        "format": "json",
+        "options": {"temperature": 0.1, "num_ctx": 8192},
+        "messages": [
+            {"role": "system", "content": (
+                "You check grocery basket matches. Given a shopping item and a "
+                "candidate product found at a supermarket, decide if the product "
+                "is what a shopper would expect to buy for that item. Rules: "
+                "- The product's MAIN substance must be the item (milk = dairy "
+                "milk, not milk thistle tea, not oat drink unless item says so). "
+                "- Kitchen gadgets/utensils are NEVER food (egg poacher ≠ eggs). "
+                "- Homeware/clothing 'colourways' (Coffee pillowcase) are NEVER "
+                "the item. - flavoured/variant lines count if the base is right. "
+                "- Accessories AROUND the item (coffee mat, coffee machine, egg "
+                "cup) are NOT the item. - Plain staple wording wins: 'Diced "
+                "Chicken' IS chicken, 'Whole Milk' IS milk, 'Peanut Butter' IS "
+                "butter-adjacent ONLY if item says butter. - Plant-based "
+                "substitutes (Vutter, oat milk) count for the staple. "
+                "Respond STRICT JSON: {\"verdicts\": [true/false,...]} — one per "
+                "candidate, same order.")},
+            {"role": "user", "content": json.dumps(
+                [{"item": i, "candidate": c} for i, c in pairs],
+                ensure_ascii=False)},
+        ],
+    }
+    try:
+        import urllib.request as _ur
+        from price_agent import _ollama_chat, _strip_to_json
+        for model, timeout_s in [(MATCH_MODEL, 45), (FALLBACK_MODEL, 30)]:
+            try:
+                body = _ollama_chat({**payload, "model": model}, timeout_s)
+                data = json.loads(_strip_to_json(body["message"]["content"]))
+                v = data.get("verdicts", [])
+                if len(v) == len(pairs):
+                    return [bool(x) for x in v]
+            except Exception as ex:  # noqa: BLE001
+                print(f"[plan] validate via {model}: {type(ex).__name__}: {str(ex)[:60]}")
+    except Exception:  # noqa: BLE001
+        pass
+    return [True] * len(pairs)   # degrade: trust token match
+
+
+class PlanRequest(BaseModel):
+    """One shopping list's items, quantity-weighted basket totals per chain."""
+    items: list[str] = Field(min_length=1, max_length=60)
+
+
+@app.post("/plan")
+def plan(req: PlanRequest):
+    """Cheapest-store routing for a shopping list.
+
+    For each item, find the best price row per chain (token-overlap match on
+    the item name, freshness-gated like /search). Then total the basket at
+    every chain: items it can't supply count as that chain's *median* item
+    price (a penalty that grows with the shopping trip — you don't buy 2 of
+    30 items at a shop that's cheap on those 2 and full price on the rest).
+    Returns per-chain totals, per-item best rows, and the recommended chain.
+    """
+    from store_discovery import slugify
+
+    # All distinct slugs once — one pool, then score in Python.
+    with db.tx() as cur:
+        cur.execute("""SELECT p.product_name, p.product_slug, p.price_cents,
+                              p.unit, s.brand AS store_brand, s.name AS store_name
+                       FROM prices p JOIN stores s ON s.id = p.store_id
+                       WHERE p.scraped_at >= ?""",
+                    (time.time() - FRESH_WINDOW_S,))
+        all_rows = [dict(r) for r in cur.fetchall()]
+
+    from price_db import PriceDB as _PDB
+    non_food = _PDB.NON_FOOD_TOKENS
+    by_chain: dict[str, list[dict]] = {}
+    for r in all_rows:
+        if non_food & {t for t in re.split(r"[^a-z0-9]+", r["product_slug"]) if t}:
+            continue   # pillowcases, razors, teapots — never basket candidates
+        by_chain.setdefault(r["store_brand"], []).append(r)
+    # cheapest row per distinct product per chain (dedupe multi-scrapes)
+    for brand in by_chain:
+        best: dict[str, dict] = {}
+        for r in by_chain[brand]:
+            k = r["product_slug"]
+            if k not in best or r["price_cents"] < best[k]["price_cents"]:
+                best[k] = r
+        by_chain[brand] = list(best.values())
+
+    plan_items = []
+    # per chain: (total_cents, missing_count, per-item rows)
+    totals: dict[str, dict] = {
+        b: {"total": 0.0, "missing": 0, "items": []} for b in by_chain}
+
+    for raw in req.items:
+        name = raw.strip()
+        # singularize BOTH sides: query "eggs"→"egg" must meet row token
+        # "eggs" (slug of "Pams Free Range Size 6 Eggs") or real products
+        # never surface — only junk with the literal singular ("Egg Poacher").
+        qtoks = {t[:-1] if t.endswith("s") and len(t) > 3 else t
+                 for t in re.split(r"[^a-z0-9]+", slugify(name)) if t}
+        if not qtoks:
+            continue
+        # per-chain best candidates: top-3 by token score (junk crowds out
+        # real products at 1-per-chain — Warehouse homeware ("Egg Poacher",
+        # "Coffee pillowcase") outscores the actual grocery at other chains)
+        per_chain: dict[str, list] = {}
+        for brand, rows in by_chain.items():
+            scored = []
+            for r in rows:
+                rtoks = {t[:-1] if t.endswith("s") and len(t) > 3 else t
+                         for t in re.split(r"[^a-z0-9]+", r["product_slug"]) if t}
+                if not rtoks:
+                    continue
+                jac = len(qtoks & rtoks) / len(qtoks | rtoks)
+                # subset bonus: "milk" fully inside "fresh whole milk" scores well
+                coverage = len(qtoks & rtoks) / len(qtoks)
+                score = 0.7 * coverage + 0.3 * jac
+                if score >= 0.55:
+                    scored.append((score, r))
+            scored.sort(key=lambda x: -x[0])
+            if scored:
+                per_chain[brand] = [r for _s, r in scored[:3]]
+        item_rows = [(b, r, 1.0) for b, rs in per_chain.items() for r in rs]
+        if not item_rows:
+            plan_items.append({"name": name, "matched": False})
+            for brand in totals:
+                totals[brand]["missing"] += 1
+            continue
+
+        # ── LLM validation of (item, chain, candidate) triples ───────────
+        # Token overlap alone matches "eggs"→egg poacher, "coffee"→pillowcase
+        # (colourway), "milk"→milk thistle tea. One batched call judges every
+        # candidate; if it rejects ALL of them the item is unmatched at any
+        # chain (never serve an egg poacher as "eggs").
+        triples = [(name, b, r) for b, r, _s in item_rows]
+        verdicts = _llm_validate_basket(
+            [(name, r["product_name"]) for _n, b, r in triples])
+        good_triples = [t for t, ok in zip(triples, verdicts) if ok]
+        if not good_triples:
+            plan_items.append({"name": name, "matched": False,
+                               "note": "no confident match in DB"})
+            for brand in totals:
+                totals[brand]["missing"] += 1
+            continue
+        item_rows = [(b, r, 1.0) for _n, b, r in good_triples]
+
+        best_chain, best_row, _s = min(item_rows, key=lambda x: x[1]["price_cents"])
+        entry = {
+            "name": name, "matched": True,
+            "best": {
+                "storeChain": best_chain,
+                "store": best_row["store_name"],
+                "productName": best_row["product_name"],
+                "price": best_row["price_cents"] / 100,
+                "currency": "NZD",
+                "unit": best_row["unit"] or None,
+            },
+            # all chains that stock something matching, for the app's
+            # per-item "elsewhere" hint
+            "options": [
+                {"storeChain": b, "price": r["price_cents"] / 100,
+                 "productName": r["product_name"]}
+                for b, r, _s in sorted(item_rows, key=lambda x: x[1]["price_cents"])
+            ],
+        }
+        plan_items.append(entry)
+
+        # per-chain totals: cheapest matching row at that chain; missing
+        # chains take a median-price penalty per unavailable item
+        prices = sorted(r["price_cents"] for _b, r, _s in item_rows)
+        median_c = prices[len(prices) // 2]
+        for brand in totals:
+            hit = next((r for b, r, _s in item_rows if b == brand), None)
+            if hit:
+                totals[brand]["total"] += hit["price_cents"] / 100
+                totals[brand]["items"].append({
+                    "name": name, "productName": hit["product_name"],
+                    "price": hit["price_cents"] / 100})
+            else:
+                totals[brand]["missing"] += 1
+                totals[brand]["total"] += median_c / 100
+
+    ranked = sorted(
+        ({"storeChain": b, **v} for b, v in totals.items()),
+        key=lambda c: (c["missing"] * 40 + c["total"]))  # missing ≈ $40 pain
+    recommendation = ranked[0] if ranked else None
+    return {
+        "items": plan_items,
+        "chains": ranked,
+        "recommendation": recommendation,
+        "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    }
+
+
 @app.post("/search")
 def search(req: SearchRequest):
     from store_discovery import slugify

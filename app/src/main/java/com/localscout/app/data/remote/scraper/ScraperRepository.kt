@@ -116,6 +116,15 @@ class ScraperRepository @Inject constructor() {
     }.getOrDefault(emptyList())
 
     /**
+     * Basket planning: totals the list at every chain and returns per-chain
+     * totals + a recommended chain. Null on any error (the Lists UI hides
+     * the comparison section and shows the offline note).
+     */
+    suspend fun planBasket(host: String, items: List<String>): PlanResponse? =
+        runCatching { apiFor(host).plan(PlanRequest(items = items)) }
+            .getOrNull()
+
+    /**
      * Upload a receipt photo for OCR + per-item cheapest pricing.
      * Separate client: uploads take a while (60-90s server pipeline) and the
      * payload is a few hundred KB.

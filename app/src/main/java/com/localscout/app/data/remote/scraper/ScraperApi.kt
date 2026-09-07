@@ -66,6 +66,9 @@ interface ScraperApi {
     @POST("history")
     suspend fun history(@Body req: HistoryRequest): HistoryResponse
 
+    @POST("plan")
+    suspend fun plan(@Body req: PlanRequest): PlanResponse
+
     @Multipart
     @POST("receipt/scan")
     suspend fun scanReceipt(@Part file: MultipartBody.Part): ReceiptScanResponse
@@ -136,6 +139,60 @@ data class ScraperHealth(
     val ok: Boolean = false,
     val stats: Map<String, Double> = emptyMap(),
     val fresh_window_s: Double = 0.0,
+)
+
+// ── basket planning (cheapest-store routing) ──────────────────────────────
+
+@Serializable
+data class PlanRequest(val items: List<String>)
+
+@Serializable
+data class PlanOption(
+    val storeChain: String,
+    val price: Double,
+    val productName: String = "",
+)
+
+@Serializable
+data class PlanBest(
+    val storeChain: String,
+    val store: String = "",
+    val productName: String = "",
+    val price: Double,
+    val currency: String = "NZD",
+    val unit: String? = null,
+)
+
+@Serializable
+data class PlanItem(
+    val name: String,
+    val matched: Boolean = false,
+    val note: String? = null,
+    val best: PlanBest? = null,
+    val options: List<PlanOption> = emptyList(),
+)
+
+@Serializable
+data class PlanChain(
+    val storeChain: String,
+    val total: Double,
+    val missing: Int = 0,
+    val items: List<PlanChainItem> = emptyList(),
+)
+
+@Serializable
+data class PlanChainItem(
+    val name: String,
+    val productName: String = "",
+    val price: Double,
+)
+
+@Serializable
+data class PlanResponse(
+    val items: List<PlanItem> = emptyList(),
+    val chains: List<PlanChain> = emptyList(),
+    val recommendation: PlanChain? = null,
+    val generatedAt: String = "",
 )
 
 @Serializable
