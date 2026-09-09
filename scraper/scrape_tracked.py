@@ -13,6 +13,7 @@ Design notes:
   doesn't kill the whole run.
 - Output is deliberately terse: cheapest price per item per chain.
 """
+import random
 import sys
 import time
 from pathlib import Path
@@ -25,10 +26,50 @@ from store_discovery import slugify
 
 AUCKLAND = (-36.8485, 174.7633)   # default scout origin
 
+# Discovery pool for list growth — 3 fresh picks per run. NZ supermarket
+# staples only; anything already tracked (active OR soft-deleted — removed
+# means removed) is skipped. Pool is bigger than a year of runs.
+DISCOVERY_POOL = [
+    "coffee", "orange juice", "apples", "yogurt", "beef mince", "sausages",
+    "canned tuna", "honey", "peanut butter", "jam", "marmite", "muesli",
+    "oats", "weet-bix", "flour", "sugar", "cooking oil", "canned tomatoes",
+    "baked beans", "potatoes", "onions", "carrots", "broccoli", "lettuce",
+    "avocado", "strawberries", "oranges", "mushrooms", "capsicum", "cucumber",
+    "cream", "ice cream", "dark chocolate", "crackers", "potato chips",
+    "almonds", "2-minute noodles", "soy sauce", "tomato sauce", "mayonnaise",
+    "toilet paper", "dishwashing liquid", "laundry detergent", "toothpaste",
+    "tinned spaghetti", "popcorn", "cornflakes", "couscous",
+    "lentils", "chickpeas", "coconut milk", "olive oil", "salmon",
+    "ham", "bacon", "kiwifruit", "mandarins", "pumpkin", "kumara",
+    "zucchini", "cream cheese", "sour cream", "sparkling water",
+]
+
+
+def discover_new_items(db: PriceDB, count: int = 3) -> list[str]:
+    """Pick `count` fresh items from the pool, excluding every query that has
+    EVER been tracked (active or soft-deleted) so removed items stay removed."""
+    with db.tx() as cur:
+        cur.execute("SELECT query FROM tracked_items")
+        known = {r["query"] for r in cur.fetchall()}
+    fresh = [q for q in DISCOVERY_POOL if q not in known]
+    if not fresh:
+        return []
+    return random.sample(fresh, min(count, len(fresh)))
+
 
 def main() -> int:
     db = PriceDB()
     items = db.tracked_items()
+
+    # Discovery: grow the list by 3 fresh items per run before scraping, so
+    # the new picks get their first prices in the same run that adds them.
+    new_picks = discover_new_items(db, count=3)
+    for q in new_picks:
+        db.add_tracked(q)
+    if new_picks:
+        items = items + new_picks
+        print(f"🌱 New this run: {', '.join(new_picks)}\n")
+
     if not items:
         print("No tracked items — add some via /tracked API first.")
         return 0
