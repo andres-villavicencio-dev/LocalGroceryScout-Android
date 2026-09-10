@@ -75,16 +75,21 @@ def main() -> int:
         return 0
 
     # Phase 1: catalog sweep — cheap bare-HTTP category walk fills the DB with
-    # ~1,200 current PAK'nSave prices in ~3 min. Runs ONCE DAILY (evening fire
-    # only) — PnS's Cloudflare bans aggressive crawlers, and with a 2x-daily
-    # cron the morning fire skips the catalog entirely. The cooldown file
-    # additionally pauses it if Cloudflare flags us regardless.
-    import datetime
-    if datetime.datetime.now().hour != 19:
-        print("[catalog] skipped (morning fire — catalog runs on the 7pm fire)")
+    # ~1,200 current PAK'nSave prices in ~3 min. Cooldown-gated to at most
+    # once every 3 days (matches the API's freshness window): PnS's Cloudflare
+    # bans aggressive crawlers, so we stay polite. A cooldown file also pauses
+    # it entirely if Cloudflare flags us.
+    import datetime, subprocess
+    _CAT_COOLDOWN_S = 3 * 24 * 3600
+    _cat_stamp = Path(__file__).parent / ".catalog_last_run"
+    _cat_age_ok = (
+        not _cat_stamp.exists()
+        or (time.time() - _cat_stamp.stat().st_mtime) >= _CAT_COOLDOWN_S
+    )
+    if not _cat_age_ok:
+        print("[catalog] skipped (ran within the last 3 days)")
     else:
         try:
-            import subprocess
             r = subprocess.run(
                 [sys.executable, "catalog_scraper.py", "--pages", "2"],
                 cwd=str(Path(__file__).parent), capture_output=True, text=True,
@@ -92,15 +97,16 @@ def main() -> int:
             tail = (r.stdout or "").strip().splitlines()
             if tail:
                 print(f"[catalog] {tail[-1]}")
+            _cat_stamp.touch()
         except Exception as ex:  # noqa: BLE001
             print(f"[catalog] failed: {ex}")
 
     # Phase 1.6: The Warehouse grocery catalog — sitemap walk + JSON-LD
-    # product pages (~400 products, ~10 min with polite gaps). Runs on the
-    # evening fire only, alongside the PnS catalog gate.
-    if datetime.datetime.now().hour == 19:
+    # product pages (~400 products, ~10 min with polite gaps). Same 3-day
+    # cooldown gate as the PnS catalog so it actually runs under the
+    # Mon/Thu 7am cron instead of silently never firing.
+    if _cat_age_ok:
         try:
-            import subprocess
             r = subprocess.run(
                 [sys.executable, "tw_catalog.py", "--pages", "10", "--limit", "400"],
                 cwd=str(Path(__file__).parent), capture_output=True, text=True,

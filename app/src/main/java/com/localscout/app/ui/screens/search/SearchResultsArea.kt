@@ -348,7 +348,7 @@ private fun SearchResultListFor(
                         Text(
                             text = if (isComparing && otherShops.isEmpty())
                                 "checking other shops…"
-                            else "same product at other shops (usually pricier)",
+                            else "same product at other shops",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 2.dp),

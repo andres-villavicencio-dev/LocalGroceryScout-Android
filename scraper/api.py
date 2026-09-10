@@ -212,6 +212,11 @@ def compare(req: CompareRequest):
     if not anchor_toks:
         return {"matches": []}
 
+    # Same freshness gate as /search's cache path (FRESH_WINDOW_S): a row
+    # older than that is NOT current stock at that chain — showing it as an
+    # "also available" price next to a fresher cheapest pick is how the UI
+    # ended up claiming NW $6.09 was cheapest while PnS $5.29 sat below it.
+    fresh_cutoff = time.time() - FRESH_WINDOW_S
     like = " OR ".join(f"p.product_slug LIKE '%' || ? || '%'" for _ in anchor_toks)
     with db.tx() as cur:
         cur.execute(
@@ -219,9 +224,9 @@ def compare(req: CompareRequest):
                        p.unit, p.sku, p.page_url, p.image_url,
                        s.brand AS store_brand, s.name AS store_name, s.id AS store_id
                 FROM prices p JOIN stores s ON s.id = p.store_id
-                WHERE ({like})
+                WHERE ({like}) AND p.scraped_at > ?
                 GROUP BY p.product_name, s.brand""",
-            tuple(anchor_toks))
+            tuple(anchor_toks) + (fresh_cutoff,))
         pool = [dict(r) for r in cur.fetchall()]
 
     anchor_lc = anchor.lower()
