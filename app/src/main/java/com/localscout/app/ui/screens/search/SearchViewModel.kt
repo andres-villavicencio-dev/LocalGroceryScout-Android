@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.localscout.app.data.location.LocationRepository
 import com.localscout.app.data.remote.ollama.OllamaRepository
+import com.localscout.app.data.remote.scraper.LatestItem
 import com.localscout.app.data.remote.scraper.ScraperRepository
 import com.localscout.app.data.settings.SettingsRepository
 import com.localscout.app.data.shoppinglist.ShoppingListRepository
@@ -64,6 +65,10 @@ data class SearchUiState(
     val listChoices: List<ShoppingList> = emptyList(),
     /** Product awaiting a list choice; non-null shows the add-to-list dialog. */
     val pendingAddToList: ProductOption? = null,
+    /** Home-screen 'fresh finds' — newest scouted products, cheapest price each. */
+    val latestFinds: List<LatestItem> = emptyList(),
+    /** True while the /latest feed loads; null-handled silently on failure. */
+    val isLoadingFinds: Boolean = false,
 ) {
     /** Rows for the selected product, sorted cheapest first. */
     val productRows: List<com.localscout.app.domain.model.ParsedPrice>
@@ -141,6 +146,28 @@ class SearchViewModel @Inject constructor(
                 _state.value = _state.value.copy(listChoices = lists)
             }
         }
+    }
+
+    init {
+        // Home-screen 'fresh finds': newest scouted products at their cheapest
+        // current price. Passive value — loads once at startup, never blocks
+        // search, fails silent (feed just doesn't show).
+        viewModelScope.launch {
+            val cfg = settings.scraperSettings.first()
+            if (!cfg.enabled) return@launch
+            _state.value = _state.value.copy(isLoadingFinds = true)
+            val finds = scraper.latest(cfg.host)
+            _state.value = _state.value.copy(
+                latestFinds = finds?.items.orEmpty(),
+                isLoadingFinds = false,
+            )
+        }
+    }
+
+    /** Card tapped on the feed: pre-fill the query and scout that product. */
+    fun onFindTapped(item: LatestItem) {
+        _state.value = _state.value.copy(query = item.productName)
+        search()
     }
 
     /** User tapped "add to list" on a picker card — stash it, show the dialog. */

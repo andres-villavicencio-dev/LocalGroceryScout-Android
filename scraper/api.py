@@ -86,6 +86,102 @@ def list_prices(store: str | None = None, limit: int = 200):
         return [dict(r) for r in cur.fetchall()]
 
 
+@app.get("/latest")
+def latest(limit: int = 12):
+    """Home-screen 'fresh finds' feed: the NEWEST scouted products, each at
+    its cheapest current price across chains.
+
+    Only rows inside the freshness window count — this is 'what the scouts
+    just found', not a stale dump. Each item carries the cheapest row's
+    chain/price/image plus, when 2+ chains stock it, how much that beats
+    the priciest chain by (the app's saving chip).
+    """
+    fresh_cut = time.time() - FRESH_WINDOW_S
+    with db.tx() as cur:
+        # Per-chain NEWEST pools, not one global newest pool: a single bulk
+        # ingestion (879 WW rows in one run) otherwise crowds every other
+        # chain out of the LIMIT window before quotas ever see them.
+        # OUT OF STOCK tiles are real rows in the app chains but unbuyable —
+        # excluded. Names sharing a 30-char prefix are one product split
+        # across wrap variants — first one wins.
+        cur.execute(
+            """SELECT DISTINCT s.brand FROM prices p JOIN stores s ON s.id = p.store_id
+               WHERE p.scraped_at > ? AND p.product_name NOT LIKE 'OUT OF STOCK%'""",
+            (fresh_cut,))
+        active_chains = [r["brand"] for r in cur.fetchall()]
+        per_chain: dict[str, list[dict]] = {}
+        for chain in active_chains:
+            cur.execute(
+                """SELECT product_slug, MAX(scraped_at) AS latest_scrape
+                   FROM prices p JOIN stores s ON s.id = p.store_id
+                   WHERE p.scraped_at > ? AND s.brand = ?
+                     AND p.product_name NOT LIKE 'OUT OF STOCK%'
+                   GROUP BY product_slug
+                   ORDER BY latest_scrape DESC LIMIT ?""",
+                (fresh_cut, chain, limit))
+            slug_rows = [dict(r) for r in cur.fetchall()]
+            queue: list[dict] = []
+            for sr in slug_rows:
+                cur.execute(
+                    """SELECT p.*, s.brand AS store_brand, s.name AS store_name
+                       FROM prices p JOIN stores s ON s.id = p.store_id
+                       WHERE p.product_slug = ? AND p.scraped_at > ?
+                         AND p.product_name NOT LIKE 'OUT OF STOCK%'
+                       ORDER BY p.price_cents ASC""",
+                    (sr["product_slug"], fresh_cut))
+                rows = [dict(r) for r in cur.fetchall()]
+                if rows:
+                    queue.append({"sr": sr, "rows": rows})
+            per_chain[chain] = queue
+
+        # Quotas: no chain may exceed ceil(limit / n_chains) slots — a 12-item
+        # feed with 3 chains gives 4 each. Without this the chain with the
+        # deepest queue (879 fresh WW rows today) hogs every slot.
+        items = []
+        n_chains = len(per_chain)
+        quota = max(1, -(-limit // n_chains)) if n_chains else 0
+        chain_counts: dict[str, int] = {}
+        # Interleave newest-first across chains, quota-capped per chain so a
+        # 12-item feed with 3 chains shows 4 from each.
+        candidates = []
+        max_q = max((len(q) for q in per_chain.values()), default=0)
+        for i in range(max_q):
+            for chain in active_chains:
+                if i < len(per_chain[chain]):
+                    candidates.append(per_chain[chain][i])
+        for cand in candidates:
+            if len(items) >= limit:
+                break
+            rows = cand["rows"]
+            sr = cand["sr"]
+            best = rows[0]
+            chain = best["store_brand"]
+            if chain_counts.get(chain, 0) >= quota:
+                continue
+            chain_counts[chain] = chain_counts.get(chain, 0) + 1
+            chains = sorted({r["store_brand"] for r in rows})
+            saving = None
+            if len(chains) >= 2:
+                saving = (max(r["price_cents"] for r in rows)
+                          - best["price_cents"]) / 100
+            items.append({
+                "store": best["store_name"],
+                "storeChain": best["store_brand"],
+                "price": best["price_cents"] / 100,
+                "currency": best["currency"],
+                "unit": _display_unit(best["unit"], best["product_name"]),
+                "productName": best["product_name"],
+                "imageUrl": fs_image_url(best.get("sku")),
+                "url": best.get("page_url"),
+                "productSlug": best["product_slug"],
+                "chains": len(chains),
+                "savingVsHighest": saving,
+                "scrapedAt": sr["latest_scrape"],
+            })
+    return {"items": items,
+            "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+
+
 class HistoryRequest(BaseModel):
     query: str = Field(min_length=1, max_length=80)
     days: int = Field(default=90, ge=1, le=365)

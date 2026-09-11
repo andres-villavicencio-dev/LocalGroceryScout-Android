@@ -59,6 +59,7 @@ fun SearchResultsArea(
     onBackToPicker: () -> Unit,
     onAddToList: (ProductOption) -> Unit = {},
     onShowEstimates: () -> Unit = {},
+    onFindTapped: (com.localscout.app.data.remote.scraper.LatestItem) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxWidth()) {
@@ -158,17 +159,11 @@ fun SearchResultsArea(
                     )
                 }
             }
-            else -> Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 32.dp),
-            ) {
-                Text(
-                    text = "Tip: searches hit your price scraper for real supermarket prices (look for the SCOUTED badge). If it's down, you'll get an honest no-data message — rough estimates are opt-in and always labelled.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            else -> LatestFindsFeed(
+                finds = state.latestFinds,
+                isLoading = state.isLoadingFinds,
+                onFindTapped = onFindTapped,
+            )
         }
     }
 }
@@ -634,6 +629,169 @@ private fun EstimateBanner(modifier: Modifier = Modifier) {
                 color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f),
                 modifier = Modifier.padding(top = 2.dp),
             )
+        }
+    }
+}
+
+
+// ── Home-screen 'fresh finds' feed ──────────────────────────────────────────
+
+/**
+ * The idle home state: newest scouted products at their cheapest current
+ * price, picture-first. Passive value — one tap scouts the product across
+ * every chain. Falls back to the plain tip text when the scraper is
+ * unreachable or the feed is empty (never a dead section).
+ */
+@Composable
+fun LatestFindsFeed(
+    finds: List<com.localscout.app.data.remote.scraper.LatestItem>,
+    isLoading: Boolean,
+    onFindTapped: (com.localscout.app.data.remote.scraper.LatestItem) -> Unit,
+) {
+    if (finds.isEmpty()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 32.dp),
+        ) {
+            if (isLoading) {
+                androidx.compose.material3.LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                Text(
+                    text = "Tip: searches hit your price scraper for real supermarket prices (look for the SCOUTED badge). If it's down, you'll get an honest no-data message — rough estimates are opt-in and always labelled.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        return
+    }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "Fresh finds",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 2.dp),
+        )
+        Text(
+            text = "Just scouted · cheapest current price per product",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp),
+        )
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            itemsIndexed(
+                finds,
+                key = { idx, it -> "find-${it.productSlug ?: it.productName}-$idx" },
+            ) { idx, find ->
+                SpringEntrance(index = idx) {
+                    LatestFindCard(find = find, onClick = { onFindTapped(find) })
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Picture-led card for one fresh find: product image, name, cheapest chain,
+ * price — and a saving chip when the same product is stocked at 2+ chains and
+ * buying it here beats the priciest chain by a meaningful amount.
+ */
+@Composable
+private fun LatestFindCard(
+    find: com.localscout.app.data.remote.scraper.LatestItem,
+    onClick: () -> Unit,
+) {
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+        ) {
+            if (find.imageUrl != null) {
+                AsyncImage(
+                    model = find.imageUrl,
+                    contentDescription = find.productName,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)),
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = find.productName.take(1).uppercase(),
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 12.dp),
+            ) {
+                Text(
+                    text = find.productName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                )
+                Text(
+                    text = buildString {
+                        append("cheapest at ")
+                        append(find.storeChain ?: find.store)
+                        if (find.chains > 1) append(" · ${find.chains} chains")
+                        find.unit?.let { append(" · $it") }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+                // Saving chip: beats the priciest stocking chain by $X.
+                find.savingVsHighest?.takeIf { it >= 0.5 }?.let { saving ->
+                    androidx.compose.material3.SuggestionChip(
+                        onClick = {},
+                        label = { Text("save $%.2f vs priciest chain".format(saving)) },
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                            labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                        ),
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = "$%.2f".format(find.price),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = "SCOUTED",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
         }
     }
 }

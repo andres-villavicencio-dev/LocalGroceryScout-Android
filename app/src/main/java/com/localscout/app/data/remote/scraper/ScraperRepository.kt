@@ -116,6 +116,15 @@ class ScraperRepository @Inject constructor() {
     }.getOrDefault(emptyList())
 
     /**
+     * Home-screen 'fresh finds' — newest scouted products at their cheapest
+     * current price, straight from the DB. Fails soft with null so the home
+     * screen silently falls back to its tip text.
+     */
+    suspend fun latest(host: String): LatestResponse? = runCatching {
+        apiFor(host).latest()
+    }.getOrNull()
+
+    /**
      * Basket planning: totals the list at every chain and returns per-chain
      * totals + a recommended chain. Null on any error (the Lists UI hides
      * the comparison section and shows the offline note).

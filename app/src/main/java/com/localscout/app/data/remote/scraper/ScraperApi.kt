@@ -53,7 +53,34 @@ data class ScraperSearchResponse(
     val modelUsed: String? = null,          // absent from scraper; ollama only
 )
 
+// ── home-screen 'fresh finds' feed (GET /latest) ────────────────────────────
+
+@Serializable
+data class LatestItem(
+    val store: String,
+    @SerialName("storeChain") val storeChain: String? = null,
+    val price: Double,
+    val currency: String = "NZD",
+    val unit: String? = null,
+    val productName: String,
+    @SerialName("imageUrl") val imageUrl: String? = null,
+    val url: String? = null,
+    @SerialName("productSlug") val productSlug: String? = null,
+    val chains: Int = 1,
+    @SerialName("savingVsHighest") val savingVsHighest: Double? = null,
+    val scrapedAt: Double = 0.0,
+)
+
+@Serializable
+data class LatestResponse(
+    val items: List<LatestItem> = emptyList(),
+    @SerialName("generatedAt") val generatedAt: String = "",
+)
+
 interface ScraperApi {
+    @GET("latest")
+    suspend fun latest(): LatestResponse
+
     @POST("search")
     suspend fun search(@Body req: ScraperSearchRequest): ScraperSearchResponse
 
