@@ -158,12 +158,33 @@ def main() -> int:
     # phone (adb). Woolworths site = Akamai, Pak'nSave site = Cloudflare; the
     # apps on a trusted device are the only way in. Phone must be plugged in
     # + unlocked. Each shelf walk takes ~1-3 min — keep query maps small.
+    #
+    # Walks EVERY tracked staple that has a mapped category path, not just
+    # tea: Woolworths has no other price source, so a staple missing from
+    # APPS["woolworths"]["query_categories"] ages out of the freshness
+    # window within days. Paths are deduped across queries (butter and eggs
+    # share the "Eggs, Butter & Spreads" shelf — walk it once, not twice).
     try:
-        from app_scraper import scrape_query as app_scrape_query
-        print("\n📱 Woolworths (app) phase:")
-        app_scrape_query(db, "tea", "woolworths")
-        print("\n📱 Pak'nSave (app) phase:")
-        app_scrape_query(db, "tea", "paknsave")
+        from app_scraper import APPS, scrape_category, ingest_tiles
+        for app_name in ("woolworths", "paknsave"):
+            mapped = APPS[app_name]["query_categories"]
+            paths: list[list[str]] = []
+            for q in items:
+                for p in mapped.get(q, []):
+                    if p not in paths:
+                        paths.append(p)
+            if not paths:
+                print(f"\n📱 {app_name} (app): no mapped shelves, skipped")
+                continue
+            print(f"\n📱 {app_name} (app): walking {len(paths)} shelves")
+            for path in paths:
+                label = " > ".join(path)
+                try:
+                    tiles = scrape_category(path, app_name)
+                    n = ingest_tiles(db, tiles, path[-1], app_name)
+                    print(f"  ✓ {label}: {len(tiles)} tiles, {n} ingested")
+                except Exception as ex:  # noqa: BLE001 — one dead shelf ≠ dead run
+                    print(f"  ✗ {label}: {type(ex).__name__}: {str(ex)[:90]}")
     except Exception as ex:  # noqa: BLE001 — missing phone must not kill the run
         print(f"✗ app scrapers: {type(ex).__name__}: {str(ex)[:90]}")
 

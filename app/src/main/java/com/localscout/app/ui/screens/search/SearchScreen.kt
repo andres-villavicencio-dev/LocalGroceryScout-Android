@@ -185,6 +185,7 @@ fun SearchScreen(
             onProductSelect = viewModel::selectProduct,
             onBackToPicker = viewModel::backToPicker,
             onAddToList = viewModel::requestAddToList,
+            onShowEstimates = viewModel::showEstimates,
             modifier = Modifier.padding(top = 16.dp),
         )
     }

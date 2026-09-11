@@ -34,7 +34,7 @@ gets actual shelf prices from the chains' online shops.
 | New World | ✅ working | Foodstuffs platform, schema.org microdata |
 | Pak'nSave | ✅ working | Foodstuffs platform, SKU card handles |
 | Four Square | ❌ no e-commerce | site has no online shop |
-| Woolworths | ❌ Akamai-blocked | headless browsers get ERR_HTTP2_PROTOCOL_ERROR |
+| Woolworths | ✅ via phone app | site stays Akamai-blocked; prices come from the Countdown Android app driven over adb (see app_scraper.py) |
 
 OSM brand tags are normalized (`PAK'nSAVE` ≡ `Pak'nSave` ≡ `paknsave`).
 
@@ -70,8 +70,9 @@ weekly promo cycle, so 3 days balances staleness against scraping cost
 
 ## Known limitations
 
-- **Woolworths blocked** — Akamai bot detection kills headless requests.
-  Revisit with residential proxies or their mobile app's API.
+- **Woolworths site blocked** — Akamai still kills headless requests; the
+  phone-app path (app_scraper.py) is the supported route. It needs the
+  Note 8 docked, unlocked, and the Countdown app installed at cron time.
 - **Store selection is IP-based** — the Foodstuffs sites pick the branch
   nearest the *scraper's* IP, not the user's coordinates. Fine when the
   scraper runs on the user's LAN; note it for cloud deployments.

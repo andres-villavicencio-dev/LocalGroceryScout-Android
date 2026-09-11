@@ -27,9 +27,14 @@ When it dies, re-point this at the replacement app's UI — the approach
 (adb + accessibility tree) transfers, the selectors won't.
 
 Usage:
-  python3 ww_app_scraper.py --query tea          # tracked-query category paths
-  python3 ww_app_scraper.py --cat Drinks "Tea & Milk Drinks" "Black & Breakfast Tea"
-  python3 ww_app_scraper.py --list-queries
+  python3 app_scraper.py --query milk --app woolworths   # any mapped staple
+  python3 app_scraper.py --list-queries                  # what's mapped
+  python3 app_scraper.py --cat Drinks "Tea & Milk Drinks" "Black & Breakfast Tea"
+
+PnS first-run notes (v5.4.0): dismiss the Club+ gate ("I'm just browsing"),
+then pick a store ONCE via the picker's left-edge radio zone (row center taps
+are dead): force-stop → relaunch → browsing → tap row at x≈120. The store
+choice persists.
 """
 
 from __future__ import annotations
@@ -69,12 +74,45 @@ APPS: dict[str, dict] = {
             distance_km=1.2,
         ),
         # Tracked query -> category drill paths (top category -> shelf PLP).
-        # Mirrors the app's Products taxonomy (recon'd from the tree).
+        # Recon'd live 2026-09-11 (app v26.13.1): Products tab -> L1 card ->
+        # shelf list -> PLP. All 11 tracked staples are mapped; each walk is
+        # 1-3 min. Woolworths has NO other price source (site = Akamai wall),
+        # so this map is the only thing that keeps NZ's biggest chain fresh.
         "query_categories": {
             "tea": [
                 ["Drinks", "Tea & Milk Drinks", "Black & Breakfast Tea"],
                 ["Drinks", "Tea & Milk Drinks", "Green Tea"],
                 ["Drinks", "Tea & Milk Drinks", "Herbal & Fruit Teas"],
+            ],
+            "milk": [
+                ["Fridge & Deli", "Milk"],
+            ],
+            "butter": [
+                ["Fridge & Deli", "Eggs, Butter & Spreads"],
+            ],
+            "eggs": [
+                ["Fridge & Deli", "Eggs, Butter & Spreads"],
+            ],
+            "cheese": [
+                ["Fridge & Deli", "Cheese"],
+            ],
+            "bananas": [
+                ["Fruit & Veg", "Fruit"],
+            ],
+            "bread": [
+                ["Bakery", "Sliced & Packaged Bread"],
+            ],
+            "chicken": [
+                ["Meat & Poultry", "Chicken & Poultry"],
+            ],
+            "pasta": [
+                ["Pantry", "Pasta, Noodles & Grains"],
+            ],
+            "rice": [
+                ["Pantry", "Pasta, Noodles & Grains"],
+            ],
+            "milo cereal": [
+                ["Pantry", "Cereals & Spreads"],
             ],
         },
     },
@@ -91,13 +129,19 @@ APPS: dict[str, dict] = {
             distance_km=1.5,
         ),
         # Tile prices live in content-desc: "NAME, SIZE, DOLLARS, CENTS,
-        # PRICE-UNIT, $X.XX/100" — more structured than Countdown's stream.
+        # PRICE-UNIT, $X.XX" — more structured than Countdown's stream.
+        # NOTE (2026-09-11, app v5.4.0): taxonomy is L1 card -> L2 chips ->
+        # shelf list -> PLP. PnS prices are ALSO covered by the catalog
+        # sweep (catalog_scraper.py), so this map is a freshness backstop —
+        # keep it to the highest-value staples, not all 11.
         "query_categories": {
             "tea": [
-                ["HOT & COLD DRINKS", "TEA"],                      # all tea
                 ["HOT & COLD DRINKS", "TEA", "BLACK TEA"],
                 ["HOT & COLD DRINKS", "TEA", "GREEN TEA"],
                 ["HOT & COLD DRINKS", "TEA", "FRUIT, HERBAL & FLAVOURED TEA"],
+            ],
+            "bananas": [
+                ["FRUIT & VEGETABLES", "FRUIT", "BANANAS"],
             ],
         },
     },
@@ -138,9 +182,15 @@ def screen_descs(xml: str) -> list[str]:
     return [unescape(d).strip() for d in descs if d and d.strip()]
 
 
+# v5.4.0 desc shapes seen live (2026-09-11):
+#   "Fair Trade Bananas, 850g, 5, 49, ea, $5.49/ea"   (with divider)
+#   "Dole Bobby Bananas Bunch, ea, 3, 00, ea, $3.53"  (no divider)
+# The divider suffix is now optional; unit_price falls back to the raw
+# dollars.cents when absent.
 _PNS_TILE = re.compile(
-    r'^(?P<name>.+),\s*(?P<size>[^,]+),\s*(?P<dollars>\d{1,3}),\s*'
-    r'(?P<cents>\d{2}),\s*(?P<punit>[a-z]+),\s*\$(?P<pp>\d+\.\d{2})/(?P<pdiv>[a-z0-9]+)\.?$'
+    r'^(?P<name>.+?),\s*(?P<size>[^,]*?),\s*(?P<dollars>\d{1,3}),\s*'
+    r'(?P<cents>\d{2}),\s*(?P<punit>[a-z]+),\s*\$(?P<pp>\d+\.\d{2})'
+    r'(?:/(?P<pdiv>[a-z0-9]+))?\.?$'
 )
 
 
@@ -156,9 +206,12 @@ def parse_pns_tiles(descs: list[str]) -> list[Tile]:
         name = m.group("name").strip()
         cents = int(m.group("dollars")) * 100 + int(m.group("cents"))
         size = m.group("size").strip()
+        up = "$" + m.group("pp")
+        if m.group("pdiv"):
+            up += "/" + m.group("pdiv")
         tiles.append(Tile(name=name, price_cents=cents,
                           unit=_unit_from_name(f"{name} {size}"),
-                          unit_price="$" + m.group("pp") + "/" + m.group("pdiv"),
+                          unit_price=up,
                           badges=[]))
     return tiles
 

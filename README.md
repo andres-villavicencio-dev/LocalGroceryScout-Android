@@ -33,7 +33,7 @@ Local Grocery Scout does that comparison for you:
 - 🔍 **Search like a human** — type "milk" and get every fresh milk across every connected store, each with its cheapest price.
 - 🥇 **See the cheapest store first** — big price, store name, distance from you, and how confident the match is.
 - 🏪 **Spot the renamed identical product** — the cross-chain matcher recognises that "Anchor Pure Butter 500g" at one chain is the same block of butter another chain sells as "Anchor Butter" — and tells you the price difference.
-- 📈 **Watch prices over time** — every search feeds a growing price database (currently **~9,800 historical datapoints** across 3,400+ products), so charts show what prices are really doing.
+- 📈 **Watch prices over time** — every search feeds a growing price database (currently **~14,500 historical datapoints** across 2,000+ products), so charts show what prices are really doing.
 - 📍 **Know what's near you** — your detected area shows right on the home screen; store cards show how far the shop is.
 
 ## How it works
@@ -54,9 +54,9 @@ Local Grocery Scout does that comparison for you:
 The phone app is a thin, fast client over a price service that does the hard work:
 
 - **Four scraping chains**, each with a technique tuned to that site's stack — Playwright rendering, `__NEXT_DATA__` extraction, Shopify JSON endpoints, sitemap→JSON-LD catalog sweeps.
-- **A local price database** (SQLite) — 3,600+ live prices, ~9,800 history points, 40 stores, refreshed by scheduled scrapes twice a day.
+- **A local price database** (SQLite) — ~2,200 live prices, ~14,500 history points, 41 stores, refreshed by scheduled scrapes twice a week.
 - **LLM-powered matching, locally hosted** — an LLM resolves messy product listings to your query, and a second LLM pass matches the *same product* across chains even when the names differ. Falls back to a smaller on-GPU model automatically if the primary is down.
-- **Honest results** — every price card shows whether it was **SCOUTED** (real scraped price) with a confidence level. No estimates dressed up as facts.
+- **Honest results** — every price card shows whether it was **SCOUTED** (real scraped price) with a confidence level. If the scraper is down, the app says so; rough model estimates are opt-in behind an explicit tap and always banner-labelled. No guesses dressed up as facts.
 
 ## Feature tour
 
@@ -109,7 +109,7 @@ Set the scraper address in the app under **Settings**. An Ollama host can also b
 
 ## Status
 
-Working today: search, two-step product picker with photos, barcode scanning, receipt-to-savings, cross-chain "also available at" comparison, price history charts, detected location, twice-daily scheduled scrapes, resilient LLM fallback (cloud model → local GPU model).
+Working today: search, two-step product picker with photos, barcode scanning, receipt-to-savings, cross-chain "also available at" comparison, price history charts, detected location, twice-weekly scheduled scrapes, resilient LLM fallback (cloud model → local GPU model), opt-in labelled estimates (never silent).
 
 Roadmap: shopping-list totals with per-store splitting, price-drop alerts, more chains (Countdown is the big one — it would light up receipt savings for NZ's biggest chain), receipt savings history, and sharing lists between households.
 

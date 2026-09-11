@@ -47,6 +47,9 @@ data class SearchUiState(
     val error: String? = null,
     val modelName: String? = null,
     val dataSource: String? = null,
+    /** Scraper failed/empty → honest no-data state with an explicit
+     *  "show rough estimates" action. Estimates are NEVER shown silently. */
+    val estimatesAvailable: Boolean = false,
     /** One row per distinct product: name, cheapest price, store count. */
     val productOptions: List<ProductOption> = emptyList(),
     /** The product the user picked; null while the picker is showing. */
@@ -184,7 +187,12 @@ class SearchViewModel @Inject constructor(
         }
     }
 
-    fun search() {
+    fun search() = launchSearch(forceEstimates = false)
+
+    /** Explicit opt-in from the honest no-data card: ollama-guessed prices. */
+    fun showEstimates() = launchSearch(forceEstimates = true)
+
+    private fun launchSearch(forceEstimates: Boolean) {
         val query = _state.value.query.trim()
         if (query.isBlank()) return
 
@@ -199,6 +207,7 @@ class SearchViewModel @Inject constructor(
                 thinkingPhase = 0,
                 result = null,
                 dataSource = null,
+                estimatesAvailable = false,
             )
 
             // Ticker: elapsed time + rotating phase index.
@@ -221,15 +230,19 @@ class SearchViewModel @Inject constructor(
                 ?: GeoLocation(latitude = -36.8485, longitude = 174.7633)  // Auckland fallback
             val region = "Auckland, New Zealand"
 
-            // ---- Strategy: scraper first (real prices), ollama as fallback ----
-            // Both can be slow; kick off ollama only if the scraper fails or
-            // comes back empty. A cached scraper hit returns in <1s; a live
-            // scrape drives real browsers for 30-90s.
+            // ---- Strategy: scraper first; estimates are OPT-IN, never silent ----
+            // Old behavior: scraper failed → ollama quietly invented prices and
+            // they rendered like any other result. A price tool must never pass
+            // guesses off as data. Now: scraper fails/empty → honest no-data
+            // state with an explicit "Show rough estimates" action. Estimates
+            // also run directly when the scraper is disabled in Settings —
+            // that IS the user's chosen mode. A cached scraper hit returns in
+            // <1s; a live scrape drives real browsers for 30-90s.
             var finalResult: SearchResult? = null
             var source: String? = null
             var lastError: String? = null
 
-            if (scraperCfg.enabled) {
+            if (scraperCfg.enabled && !forceEstimates) {
                 val scraped = scraper.searchPrices(scraperCfg.host, query, loc, region)
                 scraped.onSuccess { res ->
                     if (res.results.isNotEmpty()) {
@@ -238,13 +251,14 @@ class SearchViewModel @Inject constructor(
                     }
                 }
                 scraped.onFailure { e ->
-                    // Remember but don't surface yet — ollama may still deliver.
                     lastError = "scraper: ${e.message ?: "unreachable"}"
                 }
             }
 
-            if (finalResult == null) {
-                // Scraper disabled/failed/empty → ollama estimates.
+            // Estimates run ONLY on explicit request, or in estimate mode
+            // (scraper off in Settings — the user's own configuration).
+            val wantEstimates = forceEstimates || !scraperCfg.enabled
+            if (finalResult == null && wantEstimates) {
                 val ollamaDeferred = async {
                     ollama.searchPrices(query, loc, region)
                 }
@@ -257,6 +271,22 @@ class SearchViewModel @Inject constructor(
                         lastError = (if (lastError != null) "$lastError; " else "") +
                                 "ollama: ${e.message ?: "unreachable"}"
                     }
+            }
+
+            if (finalResult == null) {
+                // Honest no-data state — stop here, render nothing guessed.
+                tickerJob?.cancel()
+                tickerJob = null
+                _state.value = _state.value.copy(
+                    isSearching = false,
+                    error = if (forceEstimates)
+                        "Estimates unavailable — ${lastError ?: "ollama unreachable"}"
+                    else
+                        "No live price data (${lastError ?: "scraper had no prices for this"}). " +
+                            "Nothing is shown rather than guessed.",
+                    estimatesAvailable = !forceEstimates,
+                )
+                return@launch
             }
 
             finalResult?.let { res ->

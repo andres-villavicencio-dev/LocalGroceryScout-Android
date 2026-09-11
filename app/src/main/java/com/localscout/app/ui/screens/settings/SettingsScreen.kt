@@ -152,7 +152,7 @@ fun SettingsScreen(
                 modifier = Modifier.padding(top = 16.dp),
             )
             Text(
-                text = "When enabled, searches hit this service first for REAL prices scraped from supermarket online shops (New World, Pak'nSave). If it's unreachable, the app falls back to ollama estimates.",
+                text = "When enabled, searches hit this service first for REAL prices scraped from supermarket online shops (New World, Pak'nSave). If it's unreachable, the app says so — no data beats guessed data. Estimates are always opt-in.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -179,7 +179,7 @@ fun SettingsScreen(
                     onCheckedChange = { scraperEnabled = it },
                 )
                 Text(
-                    text = if (scraperEnabled) "Scraper-first (real prices)" else "Ollama estimates only",
+                    text = if (scraperEnabled) "Scraper-first (real prices)" else "Estimates only (labelled)",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }

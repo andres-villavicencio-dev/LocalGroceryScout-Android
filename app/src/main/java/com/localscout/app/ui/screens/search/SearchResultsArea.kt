@@ -58,6 +58,7 @@ fun SearchResultsArea(
     onProductSelect: (String) -> Unit,
     onBackToPicker: () -> Unit,
     onAddToList: (ProductOption) -> Unit = {},
+    onShowEstimates: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxWidth()) {
@@ -107,6 +108,22 @@ fun SearchResultsArea(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
                 )
+                // Honest no-data card: estimates are one EXPLICIT tap away —
+                // never rendered automatically, never unlabeled.
+                if (state.estimatesAvailable) {
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = onShowEstimates,
+                        modifier = Modifier.padding(top = 16.dp),
+                    ) {
+                        Text("Show rough estimates instead")
+                    }
+                    Text(
+                        text = "Model guesses from memory — clearly labelled, never real prices.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
             }
             // ── Step 2a: product picker grid ────────────────────────────────
             state.result != null && state.selectedProduct == null ->
@@ -115,6 +132,7 @@ fun SearchResultsArea(
                     source = state.result!!.modelUsed,
                     onSelect = onProductSelect,
                     onAddToList = onAddToList,
+                    isEstimates = state.dataSource == "ollama",
                 )
             // ── Step 2b: chosen product → cheapest-across-stores list ────────
             state.result != null && state.selectedProduct != null -> {
@@ -136,6 +154,7 @@ fun SearchResultsArea(
                         source = state.result!!.modelUsed,
                         otherShops = state.otherShops,
                         isComparing = state.isComparing,
+                        isEstimates = state.dataSource == "ollama",
                     )
                 }
             }
@@ -145,7 +164,7 @@ fun SearchResultsArea(
                     .padding(top = 32.dp),
             ) {
                 Text(
-                    text = "Tip: searches hit the scraper service first (real supermarket prices) and fall back to ollama estimates if it's down. Look for the SCOUTED badge on cards.",
+                    text = "Tip: searches hit your price scraper for real supermarket prices (look for the SCOUTED badge). If it's down, you'll get an honest no-data message — rough estimates are opt-in and always labelled.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -160,6 +179,7 @@ private fun ProductPickerGrid(
     source: String,
     onSelect: (String) -> Unit,
     onAddToList: (ProductOption) -> Unit = {},
+    isEstimates: Boolean = false,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -173,6 +193,9 @@ private fun ProductPickerGrid(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
         )
+        if (isEstimates) {
+            EstimateBanner(modifier = Modifier.padding(bottom = 12.dp))
+        }
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -304,6 +327,7 @@ private fun SearchResultListFor(
     source: String,
     otherShops: List<ParsedPrice> = emptyList(),
     isComparing: Boolean = false,
+    isEstimates: Boolean = false,
 ) {
     // The cheapest price in the primary list — the baseline for "+$X" deltas
     // shown against the other-shop rows.
@@ -321,6 +345,9 @@ private fun SearchResultListFor(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 12.dp),
         )
+        if (isEstimates) {
+            EstimateBanner(modifier = Modifier.padding(bottom = 12.dp))
+        }
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -578,6 +605,35 @@ private fun PriceCard(
                     ),
                 )
             }
+        }
+    }
+}
+
+
+/**
+ * Unmissable banner rendered above estimate-mode results: these prices are
+ * model guesses, not live supermarket prices. Honesty beats coverage.
+ */
+@Composable
+private fun EstimateBanner(modifier: Modifier = Modifier) {
+    androidx.compose.material3.Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = "ESTIMATES — not live prices",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Text(
+                text = "Generated by the local model from memory. No supermarket was consulted.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f),
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
     }
 }

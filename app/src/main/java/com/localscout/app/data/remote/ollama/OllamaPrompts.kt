@@ -36,6 +36,7 @@ RULES:
 - Confidence 0.85+ means you're fairly confident in the price; 0.5 means a rough estimate.
 - For NZ queries, default chains are Pak'nSave, New World, Countdown (Woolworths NZ), and 4 Square.
 - For US queries, default chains are Walmart, Kroger, Safeway, Trader Joe's, Whole Foods, Target.
+- The summary MUST clearly state that all prices are estimates from memory, not live prices.
 - Do not include any prose outside the JSON object."""
 
     fun userMessage(

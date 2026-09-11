@@ -24,3 +24,7 @@ ui*-*.mp4
 *.mp4
 scraper/pns_cooldown.json
 *.apk
+
+# transient UI recon dumps from the phone-app scrapers
+scraper/recon/
+.kotlin/
