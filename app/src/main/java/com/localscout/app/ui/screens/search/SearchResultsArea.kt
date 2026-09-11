@@ -59,7 +59,6 @@ fun SearchResultsArea(
     onBackToPicker: () -> Unit,
     onAddToList: (ProductOption) -> Unit = {},
     onShowEstimates: () -> Unit = {},
-    onFindTapped: (com.localscout.app.data.remote.scraper.LatestItem) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxWidth()) {
@@ -159,11 +158,9 @@ fun SearchResultsArea(
                     )
                 }
             }
-            else -> LatestFindsFeed(
-                finds = state.latestFinds,
-                isLoading = state.isLoadingFinds,
-                onFindTapped = onFindTapped,
-            )
+            // Idle home is rendered by SearchScreen's IdleHomeScreen —
+            // this branch never fires, but the when must be exhaustive.
+            else -> {}
         }
     }
 }
@@ -634,73 +631,13 @@ private fun EstimateBanner(modifier: Modifier = Modifier) {
 }
 
 
-// ── Home-screen 'fresh finds' feed ──────────────────────────────────────────
-
-/**
- * The idle home state: newest scouted products at their cheapest current
- * price, picture-first. Passive value — one tap scouts the product across
- * every chain. Falls back to the plain tip text when the scraper is
- * unreachable or the feed is empty (never a dead section).
- */
-@Composable
-fun LatestFindsFeed(
-    finds: List<com.localscout.app.data.remote.scraper.LatestItem>,
-    isLoading: Boolean,
-    onFindTapped: (com.localscout.app.data.remote.scraper.LatestItem) -> Unit,
-) {
-    if (finds.isEmpty()) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 32.dp),
-        ) {
-            if (isLoading) {
-                androidx.compose.material3.LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            } else {
-                Text(
-                    text = "Tip: searches hit your price scraper for real supermarket prices (look for the SCOUTED badge). If it's down, you'll get an honest no-data message — rough estimates are opt-in and always labelled.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        return
-    }
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = "Fresh finds",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 2.dp),
-        )
-        Text(
-            text = "Just scouted · cheapest current price per product",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 12.dp),
-        )
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            itemsIndexed(
-                finds,
-                key = { idx, it -> "find-${it.productSlug ?: it.productName}-$idx" },
-            ) { idx, find ->
-                SpringEntrance(index = idx) {
-                    LatestFindCard(find = find, onClick = { onFindTapped(find) })
-                }
-            }
-        }
-    }
-}
-
 /**
  * Picture-led card for one fresh find: product image, name, cheapest chain,
  * price — and a saving chip when the same product is stocked at 2+ chains and
  * buying it here beats the priciest chain by a meaningful amount.
  */
 @Composable
-private fun LatestFindCard(
+fun LatestFindCard(
     find: com.localscout.app.data.remote.scraper.LatestItem,
     onClick: () -> Unit,
 ) {
