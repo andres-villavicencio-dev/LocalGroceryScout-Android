@@ -40,6 +40,7 @@ choice persists.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -53,6 +54,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 from price_db import Price, PriceDB, Store  # noqa: E402
 
 ADB = str(Path.home() / "Android/Sdk/platform-tools/adb")
+
+# The grocery phone. Hard-pin the serial: when the Note 10 is also docked,
+# a bare `adb shell` fails with "more than one device" and every step of the
+# walk dead-heads (the Sep 2026 staples run lost all 13 shelves to this).
+# Override with LGS_ANDROID_SERIAL for a different device.
+ADB_SERIAL = os.environ.get("LGS_ANDROID_SERIAL", "ce09171919e4b812057e")
 
 # ---------------------------------------------------------------------------
 # App registry — each grocery chain's app + its fulfillment store + taxonomy.
@@ -78,6 +85,10 @@ APPS: dict[str, dict] = {
         # shelf list -> PLP. All 11 tracked staples are mapped; each walk is
         # 1-3 min. Woolworths has NO other price source (site = Akamai wall),
         # so this map is the only thing that keeps NZ's biggest chain fresh.
+        # Paths are 3-LEVEL as of the v26.13.1 redesign: L1 card -> L2
+        # listing -> L3 shelf PLP. 2-level paths land on the L2 listing page
+        # (sub-shelf chips, no product tiles) and parse 0 tiles. All paths
+        # below were recon-verified live on 2026-09-11.
         "query_categories": {
             "tea": [
                 ["Drinks", "Tea & Milk Drinks", "Black & Breakfast Tea"],
@@ -85,34 +96,35 @@ APPS: dict[str, dict] = {
                 ["Drinks", "Tea & Milk Drinks", "Herbal & Fruit Teas"],
             ],
             "milk": [
-                ["Fridge & Deli", "Milk"],
+                ["Fridge & Deli", "Milk", "Full Cream Milk"],
             ],
             "butter": [
-                ["Fridge & Deli", "Eggs, Butter & Spreads"],
+                ["Fridge & Deli", "Eggs, Butter & Spreads", "Butter"],
             ],
             "eggs": [
-                ["Fridge & Deli", "Eggs, Butter & Spreads"],
+                ["Fridge & Deli", "Eggs, Butter & Spreads", "Free Range Eggs"],
+                ["Fridge & Deli", "Eggs, Butter & Spreads", "Barn Eggs"],
             ],
             "cheese": [
-                ["Fridge & Deli", "Cheese"],
+                ["Fridge & Deli", "Cheese", "Block Cheese"],
             ],
             "bananas": [
-                ["Fruit & Veg", "Fruit"],
+                ["Fruit & Veg", "Fruit", "Bananas"],
             ],
             "bread": [
-                ["Bakery", "Sliced & Packaged Bread"],
+                ["Bakery", "Sliced & Packaged Bread", "White Bread (Sliced)"],
             ],
             "chicken": [
-                ["Meat & Poultry", "Chicken & Poultry"],
+                ["Meat & Poultry", "Chicken & Poultry", "Chicken Breasts"],
             ],
             "pasta": [
-                ["Pantry", "Pasta, Noodles & Grains"],
+                ["Pantry", "Pasta, Noodles & Grains", "Dried Pasta"],
             ],
             "rice": [
-                ["Pantry", "Pasta, Noodles & Grains"],
+                ["Pantry", "Pasta, Noodles & Grains", "Rice"],
             ],
             "milo cereal": [
-                ["Pantry", "Cereals & Spreads"],
+                ["Pantry", "Cereals & Spreads", "Cereal"],
             ],
         },
     },
@@ -152,8 +164,8 @@ APPS: dict[str, dict] = {
 # ---------------------------------------------------------------------------
 
 def adb(*args: str, timeout: int = 30) -> str:
-    out = subprocess.run([ADB, *args], capture_output=True, text=True,
-                         timeout=timeout)
+    out = subprocess.run([ADB, "-s", ADB_SERIAL, *args], capture_output=True,
+                          text=True, timeout=timeout)
     return out.stdout
 
 
@@ -443,6 +455,12 @@ def collect_plp(max_screens: int = 80, app: str = "woolworths"
 
 
 def scrape_category(path: list[str], app: str = "woolworths") -> list[Tile]:
+    # Cold start every walk: the previous walk's end state (exhausted PLP,
+    # sticky headers, modals) is not a reliable navigation origin — a
+    # Sep 2026 run lost every post-PLP shelf to carry-over. force-stop +
+    # relaunch is 15s of determinism per walk.
+    adb("shell", "am", "force-stop", APPS[app]["package"])
+    time.sleep(2)
     ensure_app_foreground(app)
     goto_products_tab(app)
     drill_path = path[:-1]
