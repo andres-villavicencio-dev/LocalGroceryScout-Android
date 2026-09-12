@@ -195,7 +195,7 @@ private fun ProductPickerGrid(
                 options,
                 key = { idx, it -> "opt-${it.productName}-$idx" },
             ) { idx, opt ->
-                SpringEntrance(index = idx) {
+                Box(modifier = Modifier.animateItem()) {
                     ProductOptionCard(
                         opt = opt,
                         onClick = { onSelect(opt.productName) },
@@ -347,7 +347,7 @@ private fun SearchResultListFor(
                 rows,
                 key = { idx, it -> "${it.store}-${it.price}-${it.reasoning.hashCode()}-$idx" },
             ) { idx, price ->
-                SpringEntrance(index = idx) {
+                Box(modifier = Modifier.animateItem()) {
                     PriceCard(
                         price = price,
                         isBestPrice = idx == 0,
@@ -378,7 +378,7 @@ private fun SearchResultListFor(
                     otherShops,
                     key = { idx, it -> "also-${it.store}-${it.price}-$idx" },
                 ) { idx, price ->
-                    SpringEntrance(index = idx) {
+                    Box(modifier = Modifier.animateItem()) {
                         OtherShopCard(price = price, cheapest = cheapest)
                     }
                 }

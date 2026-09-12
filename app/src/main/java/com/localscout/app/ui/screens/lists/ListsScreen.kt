@@ -106,18 +106,20 @@ fun ListsScreen(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 items(state.lists, key = { it.id }) { list ->
-                    ShoppingListCard(
-                        list = list,
-                        expanded = state.expandedListId == list.id,
-                        planState = state.plans[list.id],
-                        onToggleExpanded = { viewModel.toggleExpanded(list.id) },
-                        onRefreshPlan = { viewModel.refreshPlan(list.id) },
-                        onRename = { renamingList = list },
-                        onDelete = { viewModel.deleteList(list.id) },
-                        onAddItem = { name, qty -> viewModel.addItem(list.id, name, qty) },
-                        onQuantityChange = { itemId, qty -> viewModel.updateQuantity(list.id, itemId, qty) },
-                        onRemoveItem = { itemId -> viewModel.removeItem(list.id, itemId) },
-                    )
+                    Box(modifier = Modifier.animateItem()) {
+                        ShoppingListCard(
+                            list = list,
+                            expanded = state.expandedListId == list.id,
+                            planState = state.plans[list.id],
+                            onToggleExpanded = { viewModel.toggleExpanded(list.id) },
+                            onRefreshPlan = { viewModel.refreshPlan(list.id) },
+                            onRename = { renamingList = list },
+                            onDelete = { viewModel.deleteList(list.id) },
+                            onAddItem = { name, qty -> viewModel.addItem(list.id, name, qty) },
+                            onQuantityChange = { itemId, qty -> viewModel.updateQuantity(list.id, itemId, qty) },
+                            onRemoveItem = { itemId -> viewModel.removeItem(list.id, itemId) },
+                        )
+                    }
                 }
             }
         }
