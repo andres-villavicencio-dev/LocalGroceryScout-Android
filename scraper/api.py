@@ -86,8 +86,20 @@ def list_prices(store: str | None = None, limit: int = 200):
         return [dict(r) for r in cur.fetchall()]
 
 
+@app.get("/img/{slug}.jpg")
+def product_image(slug: str):
+    """A product photo scraped from the phone apps' shelf screens
+    (shelf_images.py). Served as JPEG; 404 when we have no shot."""
+    from fastapi.responses import FileResponse
+    safe = slug.replace("/", "").replace("..", "")
+    p = Path(__file__).parent / "product_images" / f"{safe}.jpg"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="no image scraped")
+    return FileResponse(p, media_type="image/jpeg")
+
+
 @app.get("/latest")
-def latest(limit: int = 12):
+def latest(limit: int = 12, request: Request = None):
     """Home-screen 'fresh finds' feed: the NEWEST scouted products, each at
     its cheapest current price across chains.
 
@@ -171,7 +183,7 @@ def latest(limit: int = 12):
                 "currency": best["currency"],
                 "unit": _display_unit(best["unit"], best["product_name"]),
                 "productName": best["product_name"],
-                "imageUrl": fs_image_url(best.get("sku")),
+                "imageUrl": _best_image(best, request),
                 "url": best.get("page_url"),
                 "productSlug": best["product_slug"],
                 "chains": len(chains),
@@ -261,6 +273,28 @@ def history(req: HistoryRequest):
 
 
 
+def _best_image(row: dict, request: Request | None = None) -> str | None:
+    """Prefer the Foodstuffs CDN URL (built from SKU); fall back to the
+    product photo scraped from a phone-app shelf screen (stored as a
+    relative /img/<slug>.jpg path in the DB).
+
+    Relative /img/ paths are absolutized against the REQUEST's host so the
+    client's own base URL is used — the phone reaches the API either via
+    adb reverse (127.0.0.1:8300) or the LAN IP, and Coil needs an absolute
+    URL that matches however the client got here."""
+    cdn = fs_image_url(row.get("sku"))
+    if cdn:
+        return cdn
+    img = row.get("image_url")
+    if img and img.startswith("/img/"):
+        if request is not None:
+            host = request.headers.get("host") or request.url.authority
+            if host:
+                return f"http://{host}{img}"
+        return img
+    return None
+
+
 def fs_image_url(sku: str | None) -> str | None:
     """Foodstuffs CDN product image URL from a SKU (e.g. 5260709-EA-000).
 
@@ -292,7 +326,7 @@ class CompareRequest(BaseModel):
 
 
 @app.post("/compare")
-def compare(req: CompareRequest):
+def compare(req: CompareRequest, request: Request = None):
     """Find the SAME product (same brand, type, and pack size) sold under a
     DIFFERENT name at other chains — for the 'also available at' section.
 
@@ -349,7 +383,7 @@ def compare(req: CompareRequest):
             "store": c["store_name"], "storeChain": c["store_brand"],
             "price": c["price_cents"] / 100, "currency": "NZD",
             "unit": _display_unit(c["unit"], c["product_name"]) or None, "productName": c["product_name"],
-            "imageUrl": fs_image_url(c["sku"]), "url": c["page_url"],
+            "imageUrl": _best_image(c, request), "url": c["page_url"],
         }
 
     seen_chains = set()
@@ -652,7 +686,7 @@ def _display_unit(unit: Optional[str], product_name: str) -> Optional[str]:
 
 
 @app.post("/search")
-def search(req: SearchRequest):
+def search(req: SearchRequest, request: Request = None):
     from store_discovery import slugify
     t0 = time.time()
     qslug = slugify(req.query)
@@ -672,7 +706,7 @@ def search(req: SearchRequest):
                 "reasoning": "cached scrape",
                 "productName": r["product_name"],
                 "url": r["page_url"],
-                "imageUrl": fs_image_url(r["sku"]),
+                "imageUrl": _best_image(r, request),
             } for r in cached]
             cheapest = min(results, key=lambda r: r["price"])
             return {

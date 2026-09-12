@@ -272,8 +272,9 @@ class Tile:
     name: str
     price_cents: int
     unit: Optional[str] = None        # product-pack unit from the name ("400g")
-    unit_price: Optional[str] = None  # "$2.30 per 1KG" verbatim
+    unit_price: Optional[str] = None   # "$2.30 per 1KG" verbatim
     badges: list[str] = field(default_factory=list)
+    img_slug: Optional[str] = None     # product_images/<slug>.jpg if scraped
 
 
 def parse_tiles(texts: list[str], title: Optional[str] = None) -> list[Tile]:
@@ -428,6 +429,14 @@ def collect_plp(max_screens: int = 80, app: str = "woolworths"
         texts = screen_texts(xml)
         if app == "paknsave":
             new = parse_pns_tiles(screen_descs(xml))
+            # Best-effort product-photo capture BEFORE scrolling: this
+            # screenshot is the only moment these tiles' images are on
+            # screen. Lazy import avoids the circular app_scraper import.
+            try:
+                from shelf_images import capture_for_screen
+                capture_for_screen(xml, new, app)
+            except Exception:  # noqa: BLE001 — images never kill a walk
+                pass
             before = len(seen)
             for t in new:
                 seen.setdefault((t.name, t.price_cents), t)
@@ -443,6 +452,11 @@ def collect_plp(max_screens: int = 80, app: str = "woolworths"
                     title = t
                     break
         new = parse_tiles(texts, title)
+        try:
+            from shelf_images import capture_for_screen
+            capture_for_screen(xml, new, app)
+        except Exception:  # noqa: BLE001
+            pass
         before = len(seen)
         for t in new:
             seen.setdefault((t.name, t.price_cents), t)
@@ -490,6 +504,9 @@ def ingest_tiles(db: PriceDB, tiles: list[Tile], shelf_label: str,
         slug = slugify(t.name)
         if not slug:
             continue
+        # Scraped product photo (shelf_images) if one was captured for this
+        # walk's tiles; relative path — the API serves it from /img/<slug>.jpg.
+        img_url = f"/img/{t.img_slug}.jpg" if getattr(t, "img_slug", None) else None
         db.upsert_price(Price(
             store_id=store_id,
             product_slug=slug,
@@ -499,6 +516,7 @@ def ingest_tiles(db: PriceDB, tiles: list[Tile], shelf_label: str,
             unit=t.unit,
             unit_price=t.unit_price,
             page_url=f"{app}app://{slugify(shelf_label)}",
+            image_url=img_url,
         ))
         n += 1
     return n
