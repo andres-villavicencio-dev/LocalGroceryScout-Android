@@ -256,8 +256,14 @@ class PriceDB:
             else (*words, time.time() - days * 86400)
         with self.tx() as cur:
             cur.execute(
-                f"""SELECT h.*, s.name AS store_name, s.brand AS store_brand
-                    FROM price_history h JOIN stores s ON s.id = h.store_id
+                f"""SELECT h.*, s.name AS store_name, s.brand AS store_brand,
+                           p.product_name
+                    FROM price_history h
+                    JOIN stores s ON s.id = h.store_id
+                    LEFT JOIN (SELECT product_slug,
+                                      MIN(product_name) AS product_name
+                               FROM prices GROUP BY product_slug) p
+                           ON p.product_slug = h.product_slug
                     WHERE ({like_clauses}) AND h.scraped_at > ? {store_clause}
                     ORDER BY h.scraped_at ASC""",
                 params)
