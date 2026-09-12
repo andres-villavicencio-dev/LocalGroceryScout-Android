@@ -22,6 +22,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.localscout.app.ui.navigation.Routes
+import com.localscout.app.ui.navigation.NavTransitions
 import com.localscout.app.ui.navigation.TopLevelDestination
 import com.localscout.app.ui.screens.account.AccountScreen
 import com.localscout.app.ui.screens.history.HistoryScreen
@@ -65,7 +66,13 @@ fun LocalGroceryScoutAppRoot() {
             startDestination = TopLevelDestination.Search.route,
             modifier = Modifier.fillMaxSize(),
         ) {
-            composable(TopLevelDestination.Search.route) {
+            composable(
+                TopLevelDestination.Search.route,
+                enterTransition = { NavTransitions.tabEnter() },
+                exitTransition = { NavTransitions.tabExit() },
+                popEnterTransition = { NavTransitions.tabEnter() },
+                popExitTransition = { NavTransitions.tabExit() },
+            ) {
                 SearchScreen(
                     paddingValues = padding,
                     onOpenScanner = { navController.navigate(Routes.Scanner) },
@@ -75,19 +82,43 @@ fun LocalGroceryScoutAppRoot() {
                     onScannedProductConsumed = { pendingScannedProduct = null }
                 )
             }
-            composable(TopLevelDestination.Lists.route) {
+            composable(
+                TopLevelDestination.Lists.route,
+                enterTransition = { NavTransitions.tabEnter() },
+                exitTransition = { NavTransitions.tabExit() },
+                popEnterTransition = { NavTransitions.tabEnter() },
+                popExitTransition = { NavTransitions.tabExit() },
+            ) {
                 ListsScreen(paddingValues = padding)
             }
-            composable(TopLevelDestination.History.route) {
+            composable(
+                TopLevelDestination.History.route,
+                enterTransition = { NavTransitions.tabEnter() },
+                exitTransition = { NavTransitions.tabExit() },
+                popEnterTransition = { NavTransitions.tabEnter() },
+                popExitTransition = { NavTransitions.tabExit() },
+            ) {
                 HistoryScreen(paddingValues = padding)
             }
-            composable(TopLevelDestination.Account.route) {
+            composable(
+                TopLevelDestination.Account.route,
+                enterTransition = { NavTransitions.tabEnter() },
+                exitTransition = { NavTransitions.tabExit() },
+                popEnterTransition = { NavTransitions.tabEnter() },
+                popExitTransition = { NavTransitions.tabExit() },
+            ) {
                 AccountScreen(
                     paddingValues = padding,
                     onOpenSettings = { navController.navigate(Routes.Settings) },
                 )
             }
-            composable(Routes.Scanner) {
+            composable(
+                Routes.Scanner,
+                enterTransition = { NavTransitions.pushEnter() },
+                exitTransition = { NavTransitions.pushExit() },
+                popEnterTransition = { NavTransitions.popEnter() },
+                popExitTransition = { NavTransitions.popExit() },
+            ) {
                 BarcodeScannerScreen(
                     onSearchProduct = { productName ->
                         // Full post-scan flow: hand the OFF-identified name to
@@ -99,10 +130,22 @@ fun LocalGroceryScoutAppRoot() {
                     onClose = { navController.popBackStack() },
                 )
             }
-            composable(Routes.Receipt) {
+            composable(
+                Routes.Receipt,
+                enterTransition = { NavTransitions.pushEnter() },
+                exitTransition = { NavTransitions.pushExit() },
+                popEnterTransition = { NavTransitions.popEnter() },
+                popExitTransition = { NavTransitions.popExit() },
+            ) {
                 ReceiptScreen(onClose = { navController.popBackStack() })
             }
-            composable(Routes.Settings) {
+            composable(
+                Routes.Settings,
+                enterTransition = { NavTransitions.pushEnter() },
+                exitTransition = { NavTransitions.pushExit() },
+                popEnterTransition = { NavTransitions.popEnter() },
+                popExitTransition = { NavTransitions.popExit() },
+            ) {
                 SettingsScreen(paddingValues = padding, onBack = { navController.popBackStack() })
             }
         }

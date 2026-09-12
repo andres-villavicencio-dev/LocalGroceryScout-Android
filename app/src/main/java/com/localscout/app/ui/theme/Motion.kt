@@ -1,6 +1,7 @@
 package com.localscout.app.ui.theme
 
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.spring
 
 /**
@@ -23,16 +24,16 @@ import androidx.compose.animation.core.spring
 object ExpressiveMotion {
 
     // ── Spatial springs (overshoot + bounce) ────────────────────────────
-    fun <T> fastSpatial(): AnimationSpec<T> = spring(dampingRatio = 0.6f, stiffness = 800f)
+    fun <T> fastSpatial(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.6f, stiffness = 800f)
 
-    fun <T> defaultSpatial(): AnimationSpec<T> = spring(dampingRatio = 0.8f, stiffness = 380f)
+    fun <T> defaultSpatial(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.8f, stiffness = 380f)
 
-    fun <T> slowSpatial(): AnimationSpec<T> = spring(dampingRatio = 0.8f, stiffness = 200f)
+    fun <T> slowSpatial(): FiniteAnimationSpec<T> = spring(dampingRatio = 0.8f, stiffness = 200f)
 
     // ── Effects springs (no overshoot, critically damped) ───────────────
-    fun <T> fastEffects(): AnimationSpec<T> = spring(dampingRatio = 1.0f, stiffness = 3800f)
+    fun <T> fastEffects(): FiniteAnimationSpec<T> = spring(dampingRatio = 1.0f, stiffness = 3800f)
 
-    fun <T> defaultEffects(): AnimationSpec<T> = spring(dampingRatio = 1.0f, stiffness = 1600f)
+    fun <T> defaultEffects(): FiniteAnimationSpec<T> = spring(dampingRatio = 1.0f, stiffness = 1600f)
 
-    fun <T> slowEffects(): AnimationSpec<T> = spring(dampingRatio = 1.0f, stiffness = 800f)
+    fun <T> slowEffects(): FiniteAnimationSpec<T> = spring(dampingRatio = 1.0f, stiffness = 800f)
 }
