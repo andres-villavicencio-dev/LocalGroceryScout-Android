@@ -2,7 +2,9 @@ package com.localscout.app.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -10,6 +12,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 
 private val FallbackLightColors = lightColorScheme(
     primary = Color(0xFF059669),     // emerald-600
@@ -37,6 +40,14 @@ private val FallbackDarkColors = darkColorScheme(
     onSurface = Color(0xFFF3F4F6),
 )
 
+private val AppShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(14.dp),
+    large = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(28.dp),
+)
+
 @Composable
 fun LocalGroceryScoutTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -55,6 +66,7 @@ fun LocalGroceryScoutTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
+        shapes = AppShapes,
         typography = AppTypography,
         content = content,
     )
