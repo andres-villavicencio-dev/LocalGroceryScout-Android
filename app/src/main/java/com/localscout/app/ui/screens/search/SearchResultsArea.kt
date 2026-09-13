@@ -1,6 +1,7 @@
 package com.localscout.app.ui.screens.search
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -8,6 +9,8 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
@@ -37,8 +40,14 @@ import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -47,6 +56,7 @@ import com.localscout.app.R
 import com.localscout.app.domain.model.ParsedPrice
 import com.localscout.app.domain.model.SearchResult
 import com.localscout.app.ui.theme.ExpressiveMotion
+import kotlinx.coroutines.delay
 
 /**
  * Results area implementing M3 Expressive tactic #2 (contrast hierarchy) and
@@ -325,7 +335,23 @@ private fun ProductOptionCard(
             }
             // Add-to-list affordance: taps here do NOT trigger the card's
             // product-select onClick (separate composable node wins the gesture).
-            IconButton(onClick = onAddToList) {
+            // Micro-interaction: pressing squashes the button on the fast
+            // spatial spring (overshoot on release) — felt, not seen loudly.
+            val addInteraction = remember { MutableInteractionSource() }
+            val addPressed by addInteraction.collectIsPressedAsState()
+            val addScale by animateFloatAsState(
+                targetValue = if (addPressed) 0.85f else 1f,
+                animationSpec = ExpressiveMotion.fastSpatial(),
+                label = "add-press",
+            )
+            IconButton(
+                onClick = onAddToList,
+                interactionSource = addInteraction,
+                modifier = Modifier.graphicsLayer {
+                    scaleX = addScale
+                    scaleY = addScale
+                },
+            ) {
                 Icon(
                     imageVector = Icons.Outlined.PlaylistAdd,
                     contentDescription = "Add ${opt.productName} to a list",
@@ -559,6 +585,19 @@ private fun PriceCard(
                             color = onContainer,
                         )
                         if (isBestPrice) {
+                            // Micro-interaction: the chip pops in (0.6 → 1
+                            // with overshoot) just after the card lands, so
+                            // the eye is guided to the winner a beat later.
+                            var popped by remember { mutableStateOf(false) }
+                            LaunchedEffect(Unit) {
+                                delay(220)
+                                popped = true
+                            }
+                            val chipScale by animateFloatAsState(
+                                targetValue = if (popped) 1f else 0.6f,
+                                animationSpec = ExpressiveMotion.fastSpatial(),
+                                label = "best-price-pop",
+                            )
                             SuggestionChip(
                                 onClick = {},
                                 label = { Text("Best price") },
@@ -566,7 +605,12 @@ private fun PriceCard(
                                     containerColor = MaterialTheme.colorScheme.primary,
                                     labelColor = MaterialTheme.colorScheme.onPrimary,
                                 ),
-                                modifier = Modifier.padding(start = 8.dp),
+                                modifier = Modifier
+                                    .padding(start = 8.dp)
+                                    .graphicsLayer {
+                                        scaleX = chipScale
+                                        scaleY = chipScale
+                                    },
                             )
                         }
                     }
