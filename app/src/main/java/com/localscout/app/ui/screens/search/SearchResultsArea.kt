@@ -1,5 +1,11 @@
 package com.localscout.app.ui.screens.search
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.size
@@ -40,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import com.localscout.app.R
 import com.localscout.app.domain.model.ParsedPrice
 import com.localscout.app.domain.model.SearchResult
+import com.localscout.app.ui.theme.ExpressiveMotion
 
 /**
  * Results area implementing M3 Expressive tactic #2 (contrast hierarchy) and
@@ -62,8 +69,29 @@ fun SearchResultsArea(
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxWidth()) {
-        when {
-            state.isSearching -> Column(
+        AnimatedContent(
+            targetState = branchOf(state),
+            transitionSpec = {
+                // Forward (deeper into the flow): new branch rises with spatial
+                // spring while both cross-fade with the effects spring.
+                if (targetState.ordinal >= initialState.ordinal) {
+                    (slideInVertically(ExpressiveMotion.defaultSpatial()) { it / 6 } +
+                        fadeIn(ExpressiveMotion.fastEffects())) togetherWith
+                        (slideOutVertically(ExpressiveMotion.defaultSpatial()) { -it / 8 } +
+                            fadeOut(ExpressiveMotion.fastEffects()))
+                } else {
+                    // Backward (back to picker / idle): mirror the entrance.
+                    (slideInVertically(ExpressiveMotion.defaultSpatial()) { -it / 8 } +
+                        fadeIn(ExpressiveMotion.fastEffects())) togetherWith
+                        (slideOutVertically(ExpressiveMotion.defaultSpatial()) { it / 6 } +
+                            fadeOut(ExpressiveMotion.fastEffects()))
+                }
+            },
+            label = "search-branch",
+        ) { branch ->
+            when (branch) {
+                SearchBranch.IDLE -> {}
+                SearchBranch.LOADING -> Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -91,7 +119,7 @@ fun SearchResultsArea(
                     )
                 }
             }
-            state.error != null -> Column(
+                SearchBranch.ERROR -> Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -103,7 +131,7 @@ fun SearchResultsArea(
                     color = MaterialTheme.colorScheme.error,
                 )
                 Text(
-                    text = state.error,
+                    text = state.error ?: "",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
@@ -126,8 +154,8 @@ fun SearchResultsArea(
                 }
             }
             // ── Step 2a: product picker grid ────────────────────────────────
-            state.result != null && state.selectedProduct == null ->
-                ProductPickerGrid(
+                SearchBranch.PICKER ->
+                    ProductPickerGrid(
                     options = state.productOptions,
                     source = state.result!!.modelUsed,
                     onSelect = onProductSelect,
@@ -135,10 +163,11 @@ fun SearchResultsArea(
                     isEstimates = state.dataSource == "ollama",
                 )
             // ── Step 2b: chosen product → cheapest-across-stores list ────────
-            state.result != null && state.selectedProduct != null -> {
-                val selected = state.selectedProduct!!
-                val rows = state.productRows
-                Column(modifier = Modifier.fillMaxWidth()) {
+                SearchBranch.DETAIL -> {
+                    val selected = state.selectedProduct
+                    val rows = state.productRows
+                    if (selected != null) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
                     // Back-to-picker affordance
                     SuggestionChip(
                         onClick = onBackToPicker,
@@ -156,11 +185,10 @@ fun SearchResultsArea(
                         isComparing = state.isComparing,
                         isEstimates = state.dataSource == "ollama",
                     )
+                        }
+                    }
                 }
             }
-            // Idle home is rendered by SearchScreen's IdleHomeScreen —
-            // this branch never fires, but the when must be exhaustive.
-            else -> {}
         }
     }
 }
