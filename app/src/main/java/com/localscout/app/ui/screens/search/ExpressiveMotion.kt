@@ -125,40 +125,6 @@ fun ShapeMorphLoader(
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.7f)),
             )
-        }
-    }
-}
-
-/**
- * Staggered spring entrance for result cards (tactic #5 applied to list
- * entry): each card slides up with overshoot, delayed by its index.
- * Wrap each LazyColumn item content with this.
- */
-@Composable
-fun SpringEntrance(
-    index: Int,
-    content: @Composable () -> Unit,
-) {
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        // 60ms stagger; cap so a 67-result list doesn't take 4s to appear
-        delay((index.coerceAtMost(12) * 60L))
-        visible = true
-    }
-    val progress by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMediumLow,
-        ),
-        label = "entrance",
-    )
-    Box(
-        modifier = Modifier.graphicsLayer {
-            alpha = progress
-            translationY = (1f - progress) * 80f
-        },
-    ) {
-        content()
-    }
+            }
+            }
 }

@@ -1,6 +1,7 @@
 package com.localscout.app.ui.screens.search
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -202,8 +203,10 @@ private fun IdleHomeScreen(
             itemsIndexed(
                 state.latestFinds,
                 key = { idx, it -> "find-${it.productSlug ?: it.productName}-$idx" },
-            ) { idx, find ->
-                SpringEntrance(index = idx) {
+            ) { _, find ->
+                // M3 list physics: animateItem gives the feed the same
+                // placement/appearance springs as the results lists.
+                Box(modifier = Modifier.animateItem()) {
                     LatestFindCard(find = find, onClick = { onFindTapped(find) })
                 }
             }
