@@ -1,5 +1,6 @@
 package com.localscout.app.ui.screens.history
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,7 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -29,9 +30,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -39,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.localscout.app.data.remote.scraper.HistorySeries
+import com.localscout.app.ui.theme.ExpressiveMotion
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberLineCartesianLayer
 import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
@@ -47,6 +52,7 @@ import com.patrykandpatrick.vico.core.cartesian.data.lineSeries
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.delay
 
 /**
  * Price history screen — charts the append-only price_history table.
@@ -118,8 +124,13 @@ fun HistoryScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(history.series) { series ->
-                        HistorySeriesCard(series)
+                    itemsIndexed(
+                        history.series,
+                        key = { _, s -> "${s.store}|${s.product}" },
+                    ) { idx, series ->
+                        ChartEntrance(index = idx) {
+                            HistorySeriesCard(series)
+                        }
                     }
                 }
             }
@@ -142,6 +153,38 @@ private fun HistoryEmptyHint() {
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/**
+ * M3 Expressive entrance for a chart card. The whole series card — stats,
+ * hero price, and the PriceHistoryChart it hosts — fades in and rises 48px
+ * on the effects spring (critically damped: settles fast, never flickers
+ * past its target). Cards stagger 70ms apart so a multi-series result
+ * cascades in; the key on store|product makes each new query replay it.
+ */
+@Composable
+private fun ChartEntrance(
+    index: Int,
+    content: @Composable () -> Unit,
+) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(index.coerceAtMost(6) * 70L)
+        visible = true
+    }
+    val progress by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = ExpressiveMotion.defaultEffects(),
+        label = "chart-entrance",
+    )
+    Box(
+        modifier = Modifier.graphicsLayer {
+            alpha = progress
+            translationY = (1f - progress) * 48f
+        },
+    ) {
+        content()
     }
 }
 
