@@ -195,9 +195,14 @@ def main() -> int:
         for cat in cats:
             ctx, page = None, None
             try:
-                ctx, page = new_page()
                 cat_new, seen_ids = 0, set()
                 for pg in range(1, args.pages + 1):
+                    # Cloudflare allows exactly ONE navigation per fresh
+                    # context — even pg2 in the same context 403s. So we
+                    # rebuild the context for every page load.
+                    if ctx:
+                        ctx.close()
+                    ctx, page = new_page()
                     res = fetch_category_page(page, cat, pg)
                     hits = res.get("hits", [])
                     if not hits:
