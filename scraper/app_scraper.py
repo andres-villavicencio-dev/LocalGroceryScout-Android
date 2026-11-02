@@ -153,7 +153,10 @@ APPS: dict[str, dict] = {
                 ["HOT & COLD DRINKS", "TEA", "FRUIT, HERBAL & FLAVOURED TEA"],
             ],
             "bananas": [
-                ["FRUIT & VEGETABLES", "FRUIT", "BANANAS"],
+                # 2026-11-02: PnS collapsed the F&V tree to two levels —
+                # "FRUIT" is now a leaf PLP (no BANANAS level). The FRUIT
+                # shelf contains bananas; collect_plp walks the whole PLP.
+                ["FRUIT & VEGETABLES", "FRUIT"],
             ],
         },
     },
@@ -167,6 +170,31 @@ def adb(*args: str, timeout: int = 30) -> str:
     out = subprocess.run([ADB, "-s", ADB_SERIAL, *args], capture_output=True,
                           text=True, timeout=timeout)
     return out.stdout
+
+
+def screen_off() -> None:
+    """Turn the phone's screen off tidily once the scraper is done with it.
+
+    Releases the stay-on flag from the unlock flow (svc power stayon true
+    keeps the display awake while plugged in), then sleeps the display with
+    KEYCODE_SLEEP (223). Waits up to ~8s for the display to actually report
+    off, then verifies via dumpsys display; never raises — screen state is
+    hygiene, not a scrape result, so failures print a loud warning only.
+    """
+    try:
+        adb("shell", "svc", "power", "stayon", "false")
+        adb("shell", "input", "keyevent", "KEYCODE_SLEEP")
+        deadline = time.time() + 8
+        while time.time() < deadline:
+            state = adb("shell", "dumpsys", "display", "|", "grep", "-m1",
+                        "mScreenState")
+            if "OFF" in state:
+                print("[screen] off ✓ (stayon released, display asleep)")
+                return
+            time.sleep(1)
+        print(f"[screen] WARNING: display still on after 8s — state={state.strip()[:60]!r}")
+    except Exception as ex:  # noqa: BLE001 — hygiene, never kill the run
+        print(f"[screen] WARNING: screen-off failed: {type(ex).__name__}: {str(ex)[:80]}")
 
 
 def ui_dump(attempt: int = 3) -> str:
@@ -403,14 +431,25 @@ def goto_products_tab(app: str) -> None:
 
 def drill(path: list[str]) -> None:
     """Tap through category levels. Back-and-retry once if a tap misses
-    (transient render lag) — the tree is the source of truth."""
+    (transient render lag) — the tree is the source of truth. If the label
+    still isn't visible, scroll-search up to 4 screens: Sep 2026 PnS v5.5
+    turned the Shop page into a vertical category list, putting later
+    categories (HOT & COLD DRINKS etc.) below the fold."""
     for label in path:
         xml = ui_dump()
-        if not tap_text(label, xml, settle=5.0):
-            time.sleep(3)
+        if tap_text(label, xml, settle=5.0):
+            continue
+        time.sleep(3)
+        xml = ui_dump()
+        if tap_text(label, xml, settle=5.0):
+            continue
+        for _ in range(4):  # label may be below the fold
+            swipe_up(settle=2.0)
             xml = ui_dump()
-            if not tap_text(label, xml, settle=5.0):
-                raise RuntimeError(f"category not found on screen: {label!r}")
+            if tap_text(label, xml, settle=5.0):
+                break
+        else:
+            raise RuntimeError(f"category not found on screen: {label!r}")
 
 
 def collect_plp(max_screens: int = 80, app: str = "woolworths"
@@ -503,6 +542,11 @@ def ingest_tiles(db: PriceDB, tiles: list[Tile], shelf_label: str,
     for t in tiles:
         slug = slugify(t.name)
         if not slug:
+            continue
+        # OUT OF STOCK tiles parse as normal prices but the shelf has no
+        # stock to sell — they must not become "cheapest" candidates (61 such
+        # rows shipped as WW prices on 2026-09-24 before this filter).
+        if "out of stock" in (t.name or "").lower():
             continue
         # Scraped product photo (shelf_images) if one was captured for this
         # walk's tiles; relative path — the API serves it from /img/<slug>.jpg.
