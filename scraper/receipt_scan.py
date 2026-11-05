@@ -29,16 +29,18 @@ from store_discovery import slugify
 
 OLLAMA_GENERATE = "http://192.168.1.72:11434/api/generate"
 # Benchmarked on real receipts (PAK'nSAVE Dunedin, Sep 2026):
-#   gemma4:e4b:        13-14s, 6/8 prices, flaky run-to-run
-#   gemma3:latest:     28-29s, 4/8, hallucinates prices, misses the total
-#   gemma4:26b-qat:    34s (CPU-offloaded), 6/8, sum==total
-#   glm-5.3-flash:cloud: 15s, 6/8, sum==total, best clean names — BUT the
-#     cloud account has session quotas, so it's the ESCALATION tier, not
-#     the default (used when local reads disagree with the printed total).
-OCR_MODEL = "gemma4:e4b"
+#   glm-5.3-flash:cloud: 15s, 6/8, sum==total, best clean names — the best
+#     reader of the lot. Promoted to PRIMARY (2026-11-02): gemma4:e4b retired
+#     (slow-death lane rogue, flaky run-to-run), and receipt scanning is
+#     occasional manual use → cloud-quota burn is negligible.
+#   gemma4:e4b:        13-14s, 6/8 prices, flaky run-to-run — RETIRED
+#   gemma3:latest:     28-29s, 4/8, hallucinates prices, misses the total —
+#     kept ONLY as the local emergency rung (cloud unreachable/quota 429)
+#   gemma4:26b-qat:    34s (CPU-offloaded), 6/8, sum==total — not used
+OCR_MODEL = "glm-5.3-flash:cloud"
 OCR_FALLBACK_MODEL = "gemma3:latest"
 OCR_TIMEOUT_S = 120
-CLOUD_OCR_MODEL = "glm-5.3-flash:cloud"
+CLOUD_OCR_MODEL = "glm-5.3-flash:cloud"   # escalation re-read (fresh sample)
 CLOUD_OCR_TIMEOUT_S = 180
 
 MAX_IMAGE_BYTES = 6 * 1024 * 1024
@@ -395,7 +397,7 @@ def _llm_verify_item(name: str, tiles: list) -> list:
                     for t in tiles][:40]
     user = f'Receipt line: "{name}"\n\nCandidate products:\n{json.dumps(tile_payload)}'
     attempts = [
-        (MATCH_MODEL, RECEIPT_MATCH_SYSTEM, {}, 60),
+        (MATCH_MODEL, RECEIPT_MATCH_SYSTEM, {"think": False}, 60),
         (FALLBACK_MODEL, RECEIPT_MATCH_FALLBACK_SYSTEM, {"think": False},
          FALLBACK_TIMEOUT_S),
     ]
