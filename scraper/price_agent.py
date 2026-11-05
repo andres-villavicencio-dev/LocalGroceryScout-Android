@@ -129,13 +129,16 @@ def extract_tiles(page, query: str) -> list[Tile]:
 # ------------------------------------------------------------------ ollama
 
 OLLAMA_URL = "http://192.168.1.72:11434/api/chat"
-MATCH_MODEL = "gemma4:e4b"
-# Local fallback: when the primary model errors, times out, or is unreachable
-# (e.g. ollama cloud session-quota 429s), retry once against this small model.
-# qwen3.5:2b fits fully in the 3070's free VRAM alongside the vision model —
-# no CPU offload thrash. THINKING models must pass think=false or they burn
-# the token budget on reasoning and return empty content.
-FALLBACK_MODEL = "qwen3.5:2b"
+# 2026-11-02: gemma4:e4b retired from this lane (recurring slow-death /
+# GGML death-spiral, thermal watchdog's known rogue). qwen3.5:2b — the model
+# that rescued every gemma4 failure — is now the PRIMARY. Local, fast, zero
+# quota. THINKING models must pass think=false or they burn the token budget
+# on reasoning and return empty content — applies to BOTH rungs now.
+MATCH_MODEL = "qwen3.5:2b"
+# Cloud flash fallback: fires only when the local primary errors (rare), so
+# the andusv12u cloud quota burn stays negligible. GLM family proven at
+# strict-JSON matching in the digest lane; think:false mandatory.
+FALLBACK_MODEL = "glm-5.3-flash:cloud"
 LLM_TIMEOUT_S = 60          # primary attempt: fail fast, the fallback is cheap
 FALLBACK_TIMEOUT_S = 120
 
@@ -201,8 +204,8 @@ def llm_match_tiles(query: str, tiles: list[Tile]) -> list[LLMChoice]:
                 "role": "user",
                 "content": "Your previous reply was invalid JSON. Respond again with STRICT JSON only, no prose, no trailing commas.",
             }]
-        attempts.append((MATCH_MODEL, msgs, {}, LLM_TIMEOUT_S))
-    # Local fallback: small thinking model — think:false is mandatory.
+        attempts.append((MATCH_MODEL, msgs, {"think": False}, LLM_TIMEOUT_S))
+    # Cloud flash fallback — also a thinking model, think:false mandatory.
     attempts.append((FALLBACK_MODEL, base_messages, {"think": False}, FALLBACK_TIMEOUT_S))
 
     data = None
